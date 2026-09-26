@@ -1,0 +1,9 @@
+[project]
+name = "taskplanner"
+version = "0.1.0"
+description = "Capacity-aware personal task planning application"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
