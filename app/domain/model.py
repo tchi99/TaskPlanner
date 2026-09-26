@@ -38,6 +38,7 @@ class ProjectStatus(StrEnum):
 
 
 class TaskStatus(StrEnum):
+    INBOX = "INBOX"
     TODO = "TODO"
     IN_PROGRESS = "IN_PROGRESS"
     DONE = "DONE"
@@ -87,12 +88,14 @@ class Task:
     work_type_id: UUID | None = None
     estimated_minutes: int | None = None
     due_at: datetime | None = None
+    created_at: datetime = field(default_factory=_utc_now)
     id: UUID = field(default_factory=uuid4)
 
     def __post_init__(self) -> None:
         _require_text(self.title, "title")
         _require_positive_minutes(self.estimated_minutes, "estimated_minutes")
         _require_aware(self.due_at, "due_at")
+        _require_aware(self.created_at, "created_at")
 
 
 @dataclass(frozen=True, slots=True)
