@@ -1,16 +1,24 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.domain import ProtectionLevel, Task, TaskStatus
 
 
 class TaskCaptureRequest(BaseModel):
-    title: str
+    title: str = Field(min_length=1, max_length=500)
     notes: str | None = None
     due_at: datetime | None = None
-    estimated_minutes: int | None = None
+    estimated_minutes: int | None = Field(default=None, gt=0)
+
+    @field_validator("title")
+    @classmethod
+    def title_must_not_be_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("title must not be blank")
+        return value
 
     @field_validator("due_at")
     @classmethod

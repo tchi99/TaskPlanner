@@ -29,9 +29,10 @@ def test_capture_and_read_inbox_api() -> None:
     app.dependency_overrides[get_session] = override_session
     try:
         with TestClient(app) as client:
-            response = client.post("/api/tasks", json={"title": "Quick capture"})
+            response = client.post("/api/tasks", json={"title": "  Quick capture  "})
             assert response.status_code == 201
             assert response.json()["status"] == "INBOX"
+            assert response.json()["title"] == "Quick capture"
 
             inbox = client.get("/api/tasks/inbox")
             assert inbox.status_code == 200
@@ -53,3 +54,15 @@ def test_capture_rejects_naive_due_date() -> None:
         )
 
     assert response.status_code == 422
+
+
+def test_capture_rejects_blank_title_and_non_positive_estimate() -> None:
+    with TestClient(app) as client:
+        blank = client.post("/api/tasks", json={"title": "   "})
+        invalid_estimate = client.post(
+            "/api/tasks",
+            json={"title": "Estimate", "estimated_minutes": 0},
+        )
+
+    assert blank.status_code == 422
+    assert invalid_estimate.status_code == 422
