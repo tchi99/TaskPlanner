@@ -20,6 +20,11 @@ def _require_positive_minutes(value: int | None, field_name: str) -> None:
         raise ValueError(f"{field_name} must be greater than zero")
 
 
+def _require_non_negative(value: int, field_name: str) -> None:
+    if value < 0:
+        raise ValueError(f"{field_name} must be zero or greater")
+
+
 def _require_aware(value: datetime | None, field_name: str) -> None:
     if value is not None and (value.tzinfo is None or value.utcoffset() is None):
         raise ValueError(f"{field_name} must be timezone-aware")
@@ -39,6 +44,13 @@ class ProjectStatus(StrEnum):
 
 class TaskStatus(StrEnum):
     INBOX = "INBOX"
+    TODO = "TODO"
+    IN_PROGRESS = "IN_PROGRESS"
+    DONE = "DONE"
+    CANCELLED = "CANCELLED"
+
+
+class SegmentStatus(StrEnum):
     TODO = "TODO"
     IN_PROGRESS = "IN_PROGRESS"
     DONE = "DONE"
@@ -102,13 +114,17 @@ class Task:
 class TaskSegment:
     task_id: UUID
     title: str
-    status: TaskStatus = TaskStatus.TODO
+    status: SegmentStatus = SegmentStatus.TODO
+    position: int = 0
     work_type_id: UUID | None = None
     estimated_minutes: int | None = None
     id: UUID = field(default_factory=uuid4)
 
     def __post_init__(self) -> None:
         _require_text(self.title, "title")
+        if not isinstance(self.status, SegmentStatus):
+            raise ValueError("status must be a SegmentStatus")
+        _require_non_negative(self.position, "position")
         _require_positive_minutes(self.estimated_minutes, "estimated_minutes")
 
 
