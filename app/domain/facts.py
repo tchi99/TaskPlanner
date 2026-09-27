@@ -9,6 +9,7 @@ from .model import SegmentStatus, TaskStatus
 
 
 class DomainFactType(StrEnum):
+    TASK_CAPTURED = "TASK_CAPTURED"
     TASK_CLARIFIED = "TASK_CLARIFIED"
     TASK_STARTED = "TASK_STARTED"
     TASK_COMPLETED = "TASK_COMPLETED"
@@ -33,6 +34,13 @@ class DomainEntityType(StrEnum):
 class FactRole(StrEnum):
     DIRECT = "DIRECT"
     PROPAGATED = "PROPAGATED"
+
+
+@dataclass(frozen=True, slots=True)
+class TaskCaptured:
+    status: TaskStatus
+    estimated_minutes: int | None
+    work_type_id: UUID | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +73,8 @@ class SegmentPosition:
 
 
 FactPayload = (
-    TaskStatusChanged
+    TaskCaptured
+    | TaskStatusChanged
     | SegmentStatusChanged
     | EstimateChanged
     | WorkTypeChanged
