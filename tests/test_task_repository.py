@@ -5,19 +5,23 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.domain import Task, TaskStatus
+from app.infrastructure import models  # noqa: F401
 from app.infrastructure.db import Base
 from app.infrastructure.task_repository import SqlTaskRepository
-from app.infrastructure import models  # noqa: F401
 
 
-def test_sql_repository_persists_and_orders_inbox() -> None:
+def _engine():
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
     Base.metadata.create_all(engine)
+    return engine
 
+
+def test_sql_repository_persists_and_orders_inbox_after_owner_commits() -> None:
+    engine = _engine()
     older = Task(
         title="Older",
         status=TaskStatus.INBOX,
@@ -35,6 +39,20 @@ def test_sql_repository_persists_and_orders_inbox() -> None:
         repository.add(older)
         repository.add(newer)
         repository.add(ready)
-        inbox = repository.list_inbox()
+        session.commit()
+
+    with Session(engine) as session:
+        inbox = SqlTaskRepository(session).list_inbox()
 
     assert [task.title for task in inbox] == ["Newer", "Older"]
+
+
+def test_sql_repository_does_not_commit_its_own_writes() -> None:
+    engine = _engine()
+    task = Task(title="Uncommitted", status=TaskStatus.INBOX)
+
+    with Session(engine) as session:
+        SqlTaskRepository(session).add(task)
+
+    with Session(engine) as session:
+        assert SqlTaskRepository(session).get(task.id) is None

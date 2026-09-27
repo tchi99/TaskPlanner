@@ -1,9 +1,8 @@
 from fastapi import APIRouter, Depends, status
-from sqlalchemy.orm import Session
 
 from app.application.tasks import CaptureTaskCommand, capture_task, list_inbox
-from app.infrastructure.db import get_session
-from app.infrastructure.task_repository import SqlTaskRepository
+from app.application.uow import UnitOfWork
+from app.infrastructure.uow import get_uow
 from app.server.schemas import TaskCaptureRequest, TaskResponse
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -12,11 +11,10 @@ router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 @router.post("", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
 def capture(
     payload: TaskCaptureRequest,
-    session: Session = Depends(get_session),
+    uow: UnitOfWork = Depends(get_uow),
 ) -> TaskResponse:
-    repository = SqlTaskRepository(session)
     task = capture_task(
-        repository,
+        uow,
         CaptureTaskCommand(
             title=payload.title,
             notes=payload.notes,
@@ -28,6 +26,5 @@ def capture(
 
 
 @router.get("/inbox", response_model=list[TaskResponse])
-def inbox(session: Session = Depends(get_session)) -> list[TaskResponse]:
-    repository = SqlTaskRepository(session)
-    return [TaskResponse.from_domain(task) for task in list_inbox(repository)]
+def inbox(uow: UnitOfWork = Depends(get_uow)) -> list[TaskResponse]:
+    return [TaskResponse.from_domain(task) for task in list_inbox(uow)]

@@ -7,6 +7,7 @@ from .facts import (
     MutationResult,
     SegmentPosition,
     SegmentStatusChanged,
+    TaskCaptured,
     TaskStatusChanged,
     WorkTypeChanged,
 )
@@ -64,6 +65,7 @@ __all__ = [
     "SegmentStatusChanged",
     "Task",
     "TaskAggregate",
+    "TaskCaptured",
     "TaskSegment",
     "TaskStatus",
     "TaskStatusChanged",

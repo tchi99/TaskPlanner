@@ -2,15 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol, Sequence
+from typing import Sequence
 
-from app.domain import Task, TaskStatus
-
-
-class TaskRepository(Protocol):
-    def add(self, task: Task) -> Task: ...
-
-    def list_inbox(self) -> Sequence[Task]: ...
+from app.application.history import HistorySource, build_history_events
+from app.application.uow import UnitOfWork
+from app.domain import (
+    DomainEntityType,
+    DomainFact,
+    DomainFactType,
+    FactRole,
+    Task,
+    TaskCaptured,
+    TaskStatus,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,7 +25,7 @@ class CaptureTaskCommand:
     estimated_minutes: int | None = None
 
 
-def capture_task(repository: TaskRepository, command: CaptureTaskCommand) -> Task:
+def capture_task(uow: UnitOfWork, command: CaptureTaskCommand) -> Task:
     task = Task(
         title=command.title,
         notes=command.notes,
@@ -29,8 +33,31 @@ def capture_task(repository: TaskRepository, command: CaptureTaskCommand) -> Tas
         estimated_minutes=command.estimated_minutes,
         status=TaskStatus.INBOX,
     )
-    return repository.add(task)
+    captured = DomainFact(
+        event_type=DomainFactType.TASK_CAPTURED,
+        entity_type=DomainEntityType.TASK,
+        entity_id=task.id,
+        task_id=task.id,
+        role=FactRole.DIRECT,
+        payload=TaskCaptured(
+            status=task.status,
+            estimated_minutes=task.estimated_minutes,
+            work_type_id=task.work_type_id,
+        ),
+    )
+    events = build_history_events(
+        (captured,),
+        direct_source=HistorySource.USER,
+        occurred_at=task.created_at,
+    )
+
+    with uow:
+        uow.tasks.add(task)
+        uow.history.append_many(events)
+        uow.commit()
+    return task
 
 
-def list_inbox(repository: TaskRepository) -> Sequence[Task]:
-    return repository.list_inbox()
+def list_inbox(uow: UnitOfWork) -> Sequence[Task]:
+    with uow:
+        return tuple(uow.tasks.list_inbox())
