@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
+import { DecompositionAssistant } from "./DecompositionAssistant";
 
 type WorkType = { id: string; name: string };
 type Segment = {
@@ -345,6 +346,14 @@ export function TaskSegments({
                 </li>
               ))}
             </ol>
+          )}
+          {detail.allowed_actions.includes("ADD_SEGMENT") && (
+            <DecompositionAssistant taskId={taskId} onPrepareSegment={(title) => {
+              setNewTitle(title);
+              setNewMinutes("");
+              setNewType("");
+              setNewProtection("");
+            }} />
           )}
           {detail.allowed_actions.includes("ADD_SEGMENT") && (
             <form className="segmentForm" onSubmit={(event) => void add(event)}>
