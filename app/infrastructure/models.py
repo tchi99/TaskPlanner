@@ -202,6 +202,29 @@ class DailyReviewRecord(Base):
     revision: Mapped[int] = mapped_column(Integer(), nullable=False)
 
 
+class WeeklyDecisionRecord(Base):
+    """Confirmed review choice; never the operative task state."""
+    __tablename__ = "weekly_decisions"
+    __table_args__ = (
+        CheckConstraint("subject_kind IN ('TASK','PROJECT')",
+                        name="ck_weekly_decisions_subject"),
+        CheckConstraint(
+            "action IN ('RECIRCULATE','POSTPONE','REVIEW_LATER','DELEGATE','ABANDON')",
+            name="ck_weekly_decisions_action",
+        ),
+        CheckConstraint("revision > 0", name="ck_weekly_decisions_revision"),
+    )
+
+    week_start: Mapped[date] = mapped_column(Date(), primary_key=True)
+    timezone_name: Mapped[str] = mapped_column(String(100), primary_key=True)
+    subject_kind: Mapped[str] = mapped_column(String(16), primary_key=True)
+    subject_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    action: Mapped[str] = mapped_column(String(24), nullable=False)
+    review_on: Mapped[date | None] = mapped_column(Date(), nullable=True)
+    decided_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer(), nullable=False)
+
+
 class HistoryEventRecord(Base):
     __tablename__ = "history_events"
     __table_args__ = (
