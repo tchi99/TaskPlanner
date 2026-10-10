@@ -14,6 +14,8 @@ Ce dossier contient les Architecture Decision Records (ADR) de TaskPlanner.
 
 - [ADR-0015](./ADR-0015-start-assistance.md) — amorçage non autoritaire et point de reprise;
 
+- [ADR-0018](./ADR-0018-supabase-auth-and-api-boundary.md) — identité Supabase, JWT/JWKS et frontière API;
+
 ## Convention
 
 Chaque ADR doit contenir au minimum :
