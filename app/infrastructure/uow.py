@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.infrastructure.capacity_repository import SqlAvailabilityRepository
 from app.infrastructure.db import SessionLocal
-from app.infrastructure.history_repository import SqlHistoryRepository
+from app.infrastructure.history_repository import SqlHistoryReadRepository, SqlHistoryRepository
 from app.infrastructure.reference_repositories import (
     SqlProjectRepository,
     SqlWorkTypeRepository,
@@ -32,6 +32,7 @@ class SqlAlchemyUnitOfWork:
         self.resume_points = SqlResumePointRepository(self.session)
         self.work_sessions = SqlWorkSessionRepository(self.session)
         self.history = SqlHistoryRepository(self.session)
+        self.history_read = SqlHistoryReadRepository(self.session)
         self.projects = SqlProjectRepository(self.session)
         self.work_types = SqlWorkTypeRepository(self.session)
         return self
