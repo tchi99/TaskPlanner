@@ -127,12 +127,15 @@ def test_invalid_jwts_are_refused(secure_client, case):
 
 def test_cors_does_not_allow_unknown_origin(secure_client):
     client, _, _ = secure_client
+    # The app initializes CORS once from offline test settings; production
+    # validates its own HTTPS origin at startup.
+    test_origin = "http://localhost:5173"
     allowed = client.options("/api/tasks", headers={
-        "Origin": ORIGIN, "Access-Control-Request-Method": "POST",
+        "Origin": test_origin, "Access-Control-Request-Method": "POST",
         "Access-Control-Request-Headers": "authorization,content-type",
     })
     assert allowed.status_code == 200
-    assert allowed.headers["access-control-allow-origin"] == ORIGIN
+    assert allowed.headers["access-control-allow-origin"] == test_origin
     denied = client.options("/api/tasks", headers={
         "Origin": "https://attacker.example", "Access-Control-Request-Method": "POST",
     })
