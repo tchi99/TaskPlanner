@@ -1,3 +1,4 @@
+import { apiFetch } from "./auth";
 import { useEffect, useState } from "react";
 
 type Session = {
@@ -39,7 +40,7 @@ type Stats = {
 type Action = { action_type: string; target_id: string } | null;
 
 async function request<T>(url: string, method = "GET", body?: object): Promise<T> {
-  const response = await fetch(url, {
+  const response = await apiFetch(url, {
     method,
     headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,

@@ -1,3 +1,4 @@
+import { apiFetch } from "./auth";
 import { useEffect, useState } from "react";
 
 type Block = {
@@ -33,7 +34,7 @@ type Confirmation = {
 const headers = { "Content-Type": "application/json" };
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, options);
+  const response = await apiFetch(url, options);
   if (!response.ok) {
     const data = await response.json().catch(() => null);
     throw new Error(typeof data?.detail === "string" ? data.detail : "Opération impossible.");

@@ -1,3 +1,4 @@
+import { apiFetch } from "./auth";
 import { FormEvent, useEffect, useState } from "react";
 import { TimeBlockPlanner } from "./TimeBlockPlanner";
 
@@ -98,7 +99,7 @@ function localOffset(value: string): string {
 }
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, options);
+  const response = await apiFetch(url, options);
   if (!response.ok) {
     const data = await response.json().catch(() => null);
     throw new Error(typeof data?.detail === "string" ? data.detail : "Opération impossible.");
@@ -190,7 +191,7 @@ export function WeeklyCapacity({
   async function remove(id: string) {
     setBusy(true); setError("");
     try {
-      const response = await fetch(`/api/capacity/weeks/${weekStart}/blocks/${id}`, { method: "DELETE" });
+      const response = await apiFetch(`/api/capacity/weeks/${weekStart}/blocks/${id}`, { method: "DELETE" });
       if (!response.ok) throw new Error("Échec de suppression du bloc.");
       setReloadKey((value) => value + 1);
     } catch (err: unknown) {

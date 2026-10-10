@@ -1,3 +1,4 @@
+import { apiFetch } from "./auth";
 import { FormEvent, useEffect, useState } from "react";
 import { WorkSessions } from "./WorkSessions";
 
@@ -22,7 +23,7 @@ type StartAssistance = {
 const headers = { "Content-Type": "application/json" };
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, options);
+  const response = await apiFetch(url, options);
   if (!response.ok) {
     const message = await response.json().catch(() => null);
     throw new Error(

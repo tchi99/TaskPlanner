@@ -1,3 +1,4 @@
+import { apiFetch } from "./auth";
 import { useState } from "react";
 
 type SuggestedItem = {
@@ -38,7 +39,7 @@ export function DecompositionAssistant({
     setError("");
     setProposal(null);
     try {
-      const response = await fetch("/api/tasks/" + taskId + "/decomposition-suggestions", {
+      const response = await apiFetch("/api/tasks/" + taskId + "/decomposition-suggestions", {
         method: "POST",
       });
       if (!response.ok) {

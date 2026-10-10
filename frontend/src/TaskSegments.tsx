@@ -1,3 +1,4 @@
+import { apiFetch } from "./auth";
 import { FormEvent, useEffect, useState } from "react";
 import { DecompositionAssistant } from "./DecompositionAssistant";
 import { StarterAssistant } from "./StarterAssistant";
@@ -57,7 +58,7 @@ type DisplacementPreview = {
 const headers = { "Content-Type": "application/json" };
 
 async function send(url: string, options?: RequestInit): Promise<TaskDetail> {
-  const response = await fetch(url, options);
+  const response = await apiFetch(url, options);
   if (!response.ok) {
     const message = await response.json().catch(() => null);
     throw new Error(typeof message?.detail === "string" ? message.detail : "Échec de l'opération.");
@@ -189,7 +190,7 @@ export function TaskSegments({
     setError("");
     setPreviewResult(null);
     try {
-      const response = await fetch(`/api/tasks/${taskId}/displacement-preview`, {
+      const response = await apiFetch(`/api/tasks/${taskId}/displacement-preview`, {
         method: "POST",
         headers,
         body: JSON.stringify({

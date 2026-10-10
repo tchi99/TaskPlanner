@@ -1,3 +1,4 @@
+import { apiFetch } from "./auth";
 import { useEffect, useState } from "react";
 
 type Trend = {
@@ -38,7 +39,7 @@ export function BehaviorPanel({ refreshKey }: { refreshKey: string | number }) {
     let active = true;
     setLoading(true);
     setError("");
-    fetch("/api/behavior").then(async (response) => {
+    apiFetch("/api/behavior").then(async (response) => {
       if (!response.ok) throw new Error("Les observations sont temporairement indisponibles.");
       return response.json() as Promise<Projection>;
     }).then((value) => {

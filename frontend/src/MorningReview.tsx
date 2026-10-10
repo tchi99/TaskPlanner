@@ -1,3 +1,4 @@
+import { apiFetch } from "./auth";
 import { useEffect, useState } from "react";
 
 type Item = {
@@ -76,7 +77,7 @@ export function MorningReview({ tasks }: { tasks: { id: string }[] }) {
   useEffect(() => {
     let active = true;
     setLoading(true); setError("");
-    fetch(`/api/review/morning?day=${encodeURIComponent(day)}&timezone_name=${encodeURIComponent(zone)}`)
+    apiFetch(`/api/review/morning?day=${encodeURIComponent(day)}&timezone_name=${encodeURIComponent(zone)}`)
       .then(async (response) => {
         if (!response.ok) {
           const body = await response.json().catch(() => null);
