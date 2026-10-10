@@ -1,0 +1,65 @@
+# TP-080C: configuration only. Do not sync to Render before TP-080D approval.
+previews:
+  generation: 'off'
+
+services:
+  - type: web
+    name: taskplanner-api
+    runtime: python
+    plan: free
+    branch: main
+    autoDeployTrigger: 'off'
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --no-access-log
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: TASKPLANNER_ENV
+        value: production
+      - key: TASKPLANNER_AUTH_MODE
+        value: supabase
+      - key: TASKPLANNER_DATABASE_SCHEMA
+        value: taskplanner
+      - key: TASKPLANNER_DATABASE_URL
+        sync: false
+      - key: TASKPLANNER_SUPABASE_URL
+        sync: false
+      - key: TASKPLANNER_SUPABASE_ALLOWED_SUB
+        sync: false
+      - key: TASKPLANNER_CORS_ORIGINS
+        sync: false
+
+  - type: web
+    name: taskplanner-web
+    runtime: static
+    rootDir: frontend
+    branch: main
+    autoDeployTrigger: 'off'
+    # There is no committed package-lock.json yet. Resolve a build-local lock,
+    # then use npm ci. Pin and commit a lock in a separate dependency-maintenance PR.
+    buildCommand: npm install --package-lock-only --ignore-scripts --no-audit --no-fund && npm ci --no-audit --no-fund && npm run build
+    staticPublishPath: ./dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /index.html
+        name: Cache-Control
+        value: no-store
+    envVars:
+      - key: NODE_VERSION
+        value: 22.20.0
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: VITE_TASKPLANNER_API_URL
+        sync: false

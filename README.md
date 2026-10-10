@@ -61,3 +61,10 @@ Build frontend :
 cd frontend
 npm run build
 ```
+
+## Préparation Render / Supabase
+
+Le Blueprint versionné `render.yaml` décrit le frontend statique et FastAPI,
+sans déploiement automatique. **Ne pas activer Render avant l'autorisation de
+mise en ligne de TP-080D.** Suivre `docs/RENDER_DEPLOYMENT.md` pour les
+origines, variables, secrets, contrôles d'accès et migrations.
