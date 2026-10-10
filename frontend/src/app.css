@@ -218,3 +218,20 @@ select,
 .segmentList li { padding: 12px 0; }
 .segmentForm { display: grid; gap: 6px; padding: 12px 0; }
 .segmentForm input, .segmentForm select { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 10px; }
+
+.capacityPanel input[type="date"],
+.capacityPanel input[type="datetime-local"],
+.capacityPanel select {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: white;
+}
+.capacityBlocks li { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.capacityBlocks button { flex: none; }
+.capacityForm { margin: 16px 0; }
+.capacitySelection { border: 1px solid #e2e8f0; border-radius: 12px; margin: 12px 0; }
+.capacitySelection label { display: flex; align-items: center; gap: 10px; font-weight: 400; }
+.capacitySelection input { width: auto; }
+.capacityResult { margin-top: 16px; border-top: 1px solid #e2e8f0; padding-top: 16px; }

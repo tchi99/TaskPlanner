@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import "./app.css";
 import { TaskSegments } from "./TaskSegments";
+import { WeeklyCapacity } from "./WeeklyCapacity";
 
 type Task = {
   id: string;
@@ -250,6 +251,8 @@ export function App() {
             </div>
             {workTypes.length > 0 && <p className="muted">Types : {workTypes.map((type) => type.name).join(", ")}</p>}
           </section>
+
+          <WeeklyCapacity tasks={tasks} workTypes={workTypes} />
 
           <section className="inbox">
             <h2>Tâches clarifiées</h2>
