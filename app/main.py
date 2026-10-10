@@ -2,9 +2,11 @@ from fastapi import FastAPI
 
 from app.server.tasks import router as tasks_router
 from app.server.projects import projects_router, work_types_router
+from app.server.segments import router as segments_router
 
 app = FastAPI(title="TaskPlanner API", version="0.1.0")
 app.include_router(tasks_router)
+app.include_router(segments_router)
 app.include_router(projects_router)
 app.include_router(work_types_router)
 

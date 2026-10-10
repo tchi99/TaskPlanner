@@ -11,6 +11,7 @@ from app.domain import (
     EstimateChanged,
     FactRole,
     SegmentPosition,
+    SegmentMoved,
     SegmentStatusChanged,
     TaskCaptured,
     TaskStatusChanged,
@@ -85,6 +86,8 @@ def serialize_fact_payload(fact: DomainFact) -> dict[str, object | None]:
         }
     if isinstance(payload, SegmentPosition):
         return {"position": payload.position}
+    if isinstance(payload, SegmentMoved):
+        return {"before": payload.before, "after": payload.after}
     raise TypeError(f"unsupported history payload: {type(payload).__name__}")
 
 

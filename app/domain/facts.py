@@ -24,6 +24,8 @@ class DomainFactType(StrEnum):
     SEGMENT_REMOVED = "SEGMENT_REMOVED"
     SEGMENT_ESTIMATE_CHANGED = "SEGMENT_ESTIMATE_CHANGED"
     SEGMENT_WORK_TYPE_CHANGED = "SEGMENT_WORK_TYPE_CHANGED"
+    SEGMENT_RENAMED = "SEGMENT_RENAMED"
+    SEGMENT_REORDERED = "SEGMENT_REORDERED"
 
 
 class DomainEntityType(StrEnum):
@@ -72,6 +74,12 @@ class SegmentPosition:
     position: int
 
 
+@dataclass(frozen=True, slots=True)
+class SegmentMoved:
+    before: int
+    after: int
+
+
 FactPayload = (
     TaskCaptured
     | TaskStatusChanged
@@ -79,6 +87,7 @@ FactPayload = (
     | EstimateChanged
     | WorkTypeChanged
     | SegmentPosition
+    | SegmentMoved
     | None
 )
 

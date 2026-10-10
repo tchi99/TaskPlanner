@@ -13,6 +13,7 @@ from .facts import (
     FactRole,
     MutationResult,
     SegmentPosition,
+    SegmentMoved,
     SegmentStatusChanged,
     TaskStatusChanged,
     WorkTypeChanged,
@@ -296,6 +297,25 @@ class TaskAggregate:
             ),
         )
 
+    def rename_segment(
+        self, segment_id: UUID, title: str
+    ) -> MutationResult[TaskAggregate]:
+        self._ensure_structure_mutable()
+        segment = self._segment(segment_id)
+        if not title or not title.strip():
+            raise ValueError("title must not be blank")
+        title = title.strip()
+        if title == segment.title:
+            return MutationResult(self)
+        updated = self._replace_segment(replace(segment, title=title))
+        # The fact records that a rename happened without copying private text.
+        return MutationResult(
+            updated,
+            (self._segment_fact(
+                segment, DomainFactType.SEGMENT_RENAMED, FactRole.DIRECT, None
+            ),),
+        )
+
     def remove_segment(self, segment_id: UUID) -> MutationResult[TaskAggregate]:
         self._ensure_structure_mutable()
         segment = self._segment(segment_id)
@@ -334,8 +354,17 @@ class TaskAggregate:
         )
         if reordered == self._ordered():
             return MutationResult(self)
-        # ADR-0005 allows reordering history to be added with a later command.
-        return MutationResult(TaskAggregate(self.task, reordered))
+        changes = tuple(
+            self._segment_fact(
+                by_id[segment.id],
+                DomainFactType.SEGMENT_REORDERED,
+                FactRole.DIRECT,
+                SegmentMoved(by_id[segment.id].position, segment.position),
+            )
+            for segment in reordered
+            if by_id[segment.id].position != segment.position
+        )
+        return MutationResult(TaskAggregate(self.task, reordered), changes)
 
     def start_segment(self, segment_id: UUID) -> MutationResult[TaskAggregate]:
         self._ensure_structure_mutable()

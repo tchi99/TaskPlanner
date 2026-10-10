@@ -207,3 +207,14 @@ select,
 .projectGroup small, .muted { color: #64748b; }
 .inbox h2 { margin-top: 0; }
 .inbox h3 { margin-top: 24px; }
+
+.detailToggle { margin-left: 12px; padding: 6px 10px; font-size: .8rem; }
+.segmentPanel { margin: 16px 0; padding: 16px; border: 1px solid #cbd5e1; border-radius: 14px; background: #f8fafc; }
+.segmentSummary { display: grid; gap: 2px; }
+.segmentSummary p { margin: 4px 0 12px; }
+.segmentActions { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.segmentActions button { padding: 8px 12px; margin: 0; font-size: .8rem; }
+.segmentList { margin: 0; padding-left: 22px; }
+.segmentList li { padding: 12px 0; }
+.segmentForm { display: grid; gap: 6px; padding: 12px 0; }
+.segmentForm input, .segmentForm select { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 10px; }
