@@ -1,7 +1,11 @@
 from collections.abc import Sequence
+from datetime import datetime
+from uuid import UUID
+
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.application.history import HistoryEvent
+from app.application.history import HistoryEvent, HistorySource
 from app.infrastructure.models import HistoryEventRecord
 
 
@@ -33,3 +37,20 @@ class SqlHistoryRepository:
     def append_many(self, events: Sequence[HistoryEvent]) -> None:
         for event in events:
             self.append(event)
+
+    def list_all(self, before: datetime | None = None) -> list[HistoryEvent]:
+        query = select(HistoryEventRecord)
+        if before is not None:
+            query = query.where(HistoryEventRecord.recorded_at <= before)
+        rows = self._session.scalars(query.order_by(HistoryEventRecord.sequence)).all()
+        return [HistoryEvent(
+            id=UUID(row.id), occurred_at=row.occurred_at,
+            recorded_at=row.recorded_at, entity_type=row.entity_type,
+            entity_id=UUID(row.entity_id),
+            task_id=UUID(row.task_id) if row.task_id else None,
+            event_type=row.event_type, schema_version=row.schema_version,
+            source=HistorySource(row.source), reason_code=row.reason_code,
+            correlation_id=UUID(row.correlation_id),
+            causation_id=UUID(row.causation_id) if row.causation_id else None,
+            payload=row.payload, sequence=row.sequence,
+        ) for row in rows]
