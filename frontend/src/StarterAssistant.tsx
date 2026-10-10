@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
+import { WorkSessions } from "./WorkSessions";
 
 type NextAction = {
   action_type: string;
@@ -196,6 +197,8 @@ export function StarterAssistant({
           )}
         </>
       )}
+      {snapshot && <WorkSessions taskId={taskId} nextAction={snapshot.next_action}
+        suggestedMinutes={showSuggestion ? snapshot.starter_action?.commitment_minutes ?? null : null} />}
       <form className="quickCapture" onSubmit={(event) => void capture(event)}>
         <label>Capturer une idée sans quitter ce travail
           <input maxLength={500} value={idea} placeholder="Nouvelle idée…"

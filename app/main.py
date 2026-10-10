@@ -10,6 +10,7 @@ from app.server.morning import router as morning_router
 from app.server.daily import router as daily_router
 from app.server.weekly import router as weekly_router
 from app.server.start import router as start_router
+from app.server.work_sessions import task_router as work_session_task_router, session_router as work_session_router
 
 from app.server.tasks import router as tasks_router
 from app.server.projects import projects_router, work_types_router
@@ -31,6 +32,8 @@ app.include_router(morning_router)
 app.include_router(daily_router)
 app.include_router(weekly_router)
 app.include_router(start_router)
+app.include_router(work_session_task_router)
+app.include_router(work_session_router)
 
 
 @app.get("/api/health")
