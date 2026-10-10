@@ -30,3 +30,8 @@ Thumbs.db
 
 # Logs
 *.log
+
+# PostgreSQL backup archives (never commit production data)
+*.dump
+*.backup
+*.pgdump

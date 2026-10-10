@@ -105,3 +105,11 @@ Le Blueprint génère donc un lock temporaire à chaque build, puis utilise
 lock audité n'est pas committé; ne pas prétendre le contraire. Le passage
 à un lock versionné est à prévoir avant la mise en ligne TP-080D.
 Aucune commande ici ne déclenche un déploiement public.
+
+## Recette TP-080D
+
+Le contrôle Go/No-Go, la validation mobile/desktop, le restore réel,
+les sauvegardes indépendantes, la surveillance et le rollback sont décrits
+dans [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md). Cette procédure
+ne déclenche aucun déploiement : l'accord humain reste obligatoire avant
+l'exposition de l'API.
