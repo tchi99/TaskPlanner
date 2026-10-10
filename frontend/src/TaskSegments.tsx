@@ -11,12 +11,15 @@ type Segment = {
   effective_work_type_id: string | null;
   work_type_origin: string;
   effective_protection: string;
+  protection_override: string | null;
   allowed_actions: string[];
 };
 type TaskDetail = {
   id: string;
   title: string;
   status: string;
+  protection: string;
+  due_at: string | null;
   segments: Segment[];
   next_action: { action_type: string; target_id: string; label: string } | null;
   effective_estimate: {
@@ -35,6 +38,18 @@ type TaskDetail = {
   };
   ready_for_completion: boolean;
   allowed_actions: string[];
+};
+
+type DisplacementPreview = {
+  protection: string;
+  delay_minutes: number;
+  reason_code: string;
+  rationale: string;
+  consequences: string[];
+  deadline_crossed: boolean;
+  starts_after_deadline: boolean;
+  confirmation_required: boolean;
+  estimate_unknown: boolean;
 };
 
 const headers = { "Content-Type": "application/json" };
@@ -76,16 +91,23 @@ export function TaskSegments({
   const [newTitle, setNewTitle] = useState("");
   const [newMinutes, setNewMinutes] = useState("");
   const [newType, setNewType] = useState("");
+  const [newProtection, setNewProtection] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editMinutes, setEditMinutes] = useState("");
   const [editType, setEditType] = useState("");
+  const [editProtection, setEditProtection] = useState("");
+  const [previewTarget, setPreviewTarget] = useState("");
+  const [originalAt, setOriginalAt] = useState("");
+  const [proposedAt, setProposedAt] = useState("");
+  const [previewResult, setPreviewResult] = useState<DisplacementPreview | null>(null);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError("");
     setDetail(null);
+    setPreviewResult(null);
     send(`/api/tasks/${taskId}/detail`)
       .then((result) => { if (active) setDetail(result); })
       .catch((err: unknown) => {
@@ -105,6 +127,7 @@ export function TaskSegments({
         body: body ? JSON.stringify(body) : undefined,
       });
       setDetail(updated);
+      setPreviewResult(null);
       await onChanged();
       return true;
     } catch (err: unknown) {
@@ -122,10 +145,12 @@ export function TaskSegments({
       title: newTitle.trim(),
       estimated_minutes: newMinutes ? Number(newMinutes) : null,
       work_type_id: newType || null,
+      protection_override: newProtection || null,
     })) {
       setNewTitle("");
       setNewMinutes("");
       setNewType("");
+      setNewProtection("");
     }
   }
 
@@ -134,6 +159,7 @@ export function TaskSegments({
     setEditTitle(segment.title);
     setEditMinutes(segment.estimated_minutes?.toString() ?? "");
     setEditType(segment.work_type_id ?? "");
+    setEditProtection(segment.protection_override ?? "");
   }
 
   async function edit(event: FormEvent<HTMLFormElement>, segment: Segment) {
@@ -143,7 +169,36 @@ export function TaskSegments({
       title: editTitle.trim(),
       estimated_minutes: editMinutes ? Number(editMinutes) : null,
       work_type_id: editType || null,
+      protection_override: editProtection || null,
     })) setEditing(null);
+  }
+
+  async function previewDisplacement(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!originalAt || !proposedAt) return;
+    setBusy(true);
+    setError("");
+    setPreviewResult(null);
+    try {
+      const response = await fetch(`/api/tasks/${taskId}/displacement-preview`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          segment_id: previewTarget || null,
+          original_at: new Date(originalAt).toISOString(),
+          proposed_at: new Date(proposedAt).toISOString(),
+        }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(typeof data?.detail === "string" ? data.detail : "Simulation impossible.");
+      }
+      setPreviewResult(await response.json() as DisplacementPreview);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Simulation impossible.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   function reorder(index: number, offset: number) {
@@ -192,6 +247,32 @@ export function TaskSegments({
               : `${detail.progress.completed_segments}/${detail.progress.total_segments} terminés · ${detail.progress.cancelled_segments} annulés · ${detail.progress.open_segments} ouverts`}</p>
             {detail.ready_for_completion && <p>Prête à être clôturée explicitement (aucune clôture automatique).</p>}
           </div>
+          <h4>Évaluer un déplacement sans l'appliquer</h4>
+          <p className="muted">Simulation uniquement : indique un début actuel supposé et un nouveau début. Aucun créneau ni échéance n'est modifié.</p>
+          <form className="segmentForm" onSubmit={(event) => void previewDisplacement(event)}>
+            <label>Élément
+              <select value={previewTarget} onChange={(event) => { setPreviewTarget(event.target.value); setPreviewResult(null); }}>
+                <option value="">Tâche entière</option>
+                {detail.segments.filter((segment) => segment.status === "TODO" || segment.status === "IN_PROGRESS").map((segment) => (
+                  <option value={segment.id} key={segment.id}>{segment.title}</option>
+                ))}
+              </select>
+            </label>
+            <label>Début initial envisagé<input type="datetime-local" required value={originalAt} onChange={(event) => { setOriginalAt(event.target.value); setPreviewResult(null); }} /></label>
+            <label>Nouveau début envisagé<input type="datetime-local" required value={proposedAt} onChange={(event) => { setProposedAt(event.target.value); setPreviewResult(null); }} /></label>
+            <button disabled={busy || !originalAt || !proposedAt}>Afficher les conséquences</button>
+          </form>
+          {previewResult && (
+            <div className="segmentSummary" aria-live="polite">
+              <strong>Protection effective : {previewResult.protection}</strong>
+              <p>{previewResult.rationale}</p>
+              <p>{previewResult.confirmation_required ? "Confirmation nécessaire avant une éventuelle application future." : "Aucun déplacement dans ce scénario."}</p>
+              {previewResult.consequences.length > 0 && (
+                <ul>{previewResult.consequences.map((effect) => <li key={effect}>{effect}</li>)}</ul>
+              )}
+              {previewResult.consequences.length === 0 && <p>Aucun décalage évalué.</p>}
+            </div>
+          )}
           <div className="segmentActions">
             {detail.allowed_actions.filter((action) => action.endsWith("_TASK")).map((action) => (
               <button key={action} type="button" disabled={busy}
@@ -210,6 +291,7 @@ export function TaskSegments({
                     {segment.status} · {segment.estimated_minutes === null ? "Estimation inconnue" : `${segment.estimated_minutes} min`}
                     {" · "}{segment.work_type_origin === "SEGMENT_OVERRIDE" ? "Type spécifique" : segment.work_type_origin === "TASK_INHERITED" ? "Type hérité" : "Non classé"}
                     {" · "}{segment.effective_protection}
+                    {segment.protection_override !== null ? ` (surcharge ${segment.protection_override})` : " (hérité)"}
                   </p>
                   <div className="segmentActions">
                     {detail.allowed_actions.includes("REORDER_SEGMENTS") && index > 0 && (
@@ -238,6 +320,15 @@ export function TaskSegments({
                           {workTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
                         </select>
                       </label>
+                      <label>Protection du segment
+                        <select value={editProtection} onChange={(event) => setEditProtection(event.target.value)}>
+                          <option value="">Hériter de la tâche</option>
+                          <option value="PROTECTED">Protégé</option>
+                          <option value="REPLANNABLE">Important — replanifiable</option>
+                          <option value="FLEXIBLE">Flexible</option>
+                        </select>
+                      </label>
+                      <p className="muted">La protection d'un segment ne peut pas affaiblir celle de la tâche.</p>
                       <div className="segmentActions">
                         <button disabled={busy || !editTitle.trim()}>Enregistrer</button>
                         <button type="button" disabled={busy} onClick={() => setEditing(null)}>Fermer</button>
@@ -257,6 +348,14 @@ export function TaskSegments({
                 <select value={newType} onChange={(e) => setNewType(e.target.value)}>
                   <option value="">Hériter de la tâche</option>
                   {workTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
+                </select>
+              </label>
+              <label>Protection
+                <select value={newProtection} onChange={(event) => setNewProtection(event.target.value)}>
+                  <option value="">Hériter de la tâche</option>
+                  <option value="PROTECTED">Protégé</option>
+                  <option value="REPLANNABLE">Important — replanifiable</option>
+                  <option value="FLEXIBLE">Flexible</option>
                 </select>
               </label>
               <button disabled={busy || !newTitle.trim()} type="submit">Ajouter le segment</button>
