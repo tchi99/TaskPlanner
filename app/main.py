@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from app.server.capacity import router as capacity_router
 
 from app.server.tasks import router as tasks_router
 from app.server.projects import projects_router, work_types_router
@@ -9,6 +10,7 @@ app.include_router(tasks_router)
 app.include_router(segments_router)
 app.include_router(projects_router)
 app.include_router(work_types_router)
+app.include_router(capacity_router)
 
 
 @app.get("/api/health")
