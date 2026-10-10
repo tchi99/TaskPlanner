@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     google_client_id: str | None = None
     google_client_secret: SecretStr | None = None
 
+    # TP-050: optional server-side AI suggestions.
+    openai_api_key: SecretStr | None = None
+    openai_decomposition_model: str = "gpt-4o-mini"
+
 
 @lru_cache
 def get_settings() -> Settings:
