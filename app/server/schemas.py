@@ -3,7 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.domain import Project, ProjectStatus, ProtectionLevel, Task, TaskStatus, WorkType
+from app.domain import Project, ProjectStatus, ProtectionLevel, Task, TaskAggregate, TaskStatus, WorkType
 
 
 class TaskCaptureRequest(BaseModel):
@@ -127,3 +127,142 @@ class TaskClarificationRequest(BaseModel):
 
 class TaskProjectRequest(BaseModel):
     project_id: UUID | None
+
+
+class SegmentCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=500)
+    estimated_minutes: int | None = Field(default=None, gt=0)
+    work_type_id: UUID | None = None
+
+    @field_validator("title")
+    @classmethod
+    def valid_title(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("title must not be blank")
+        return value.strip()
+
+
+class SegmentUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=500)
+    estimated_minutes: int | None = Field(default=None, gt=0)
+    work_type_id: UUID | None = None
+
+    @field_validator("title")
+    @classmethod
+    def valid_title(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("title must not be blank")
+        return value.strip() if value is not None else None
+
+
+class SegmentReorderRequest(BaseModel):
+    segment_ids: list[UUID]
+
+
+class NextActionResponse(BaseModel):
+    action_type: str
+    target_id: UUID
+    label: str
+
+
+class EstimateResponse(BaseModel):
+    source: str
+    known_subtotal_minutes: int
+    unestimated_units: int
+    total_minutes: int | None
+    incomplete: bool
+
+
+class ProgressResponse(BaseModel):
+    total_segments: int
+    completed_segments: int
+    cancelled_segments: int
+    open_segments: int
+    completion_percent: float | None
+
+
+class SegmentResponse(BaseModel):
+    id: UUID
+    task_id: UUID
+    title: str
+    position: int
+    status: str
+    estimated_minutes: int | None
+    work_type_id: UUID | None
+    effective_work_type_id: UUID | None
+    work_type_origin: str
+    effective_protection: str
+    allowed_actions: list[str]
+
+
+class TaskDetailResponse(TaskResponse):
+    segments: list[SegmentResponse]
+    next_action: NextActionResponse | None
+    effective_estimate: EstimateResponse
+    progress: ProgressResponse
+    ready_for_completion: bool
+    allowed_actions: list[str]
+
+    @classmethod
+    def from_aggregate(cls, aggregate: "TaskAggregate") -> "TaskDetailResponse":
+        task = aggregate.task
+        structural = task.status in {TaskStatus.TODO, TaskStatus.IN_PROGRESS}
+        ordered = sorted(aggregate.segments, key=lambda segment: segment.position)
+        entries = []
+        for segment in ordered:
+            work_type = aggregate.effective_segment_work_type(segment.id)
+            actions = []
+            if structural:
+                actions.append("EDIT")
+                if segment.status.value == "TODO":
+                    actions.extend(["START", "COMPLETE", "CANCEL", "REMOVE"])
+                elif segment.status.value == "IN_PROGRESS":
+                    actions.extend(["COMPLETE", "CANCEL"])
+            entries.append(SegmentResponse(
+                id=segment.id, task_id=segment.task_id, title=segment.title,
+                position=segment.position, status=segment.status.value,
+                estimated_minutes=segment.estimated_minutes,
+                work_type_id=segment.work_type_id,
+                effective_work_type_id=work_type.work_type_id,
+                work_type_origin=work_type.origin.value,
+                effective_protection=aggregate.effective_segment_protection(segment.id).value,
+                allowed_actions=actions,
+            ))
+        action = aggregate.next_action()
+        estimate = aggregate.effective_estimate()
+        completed = sum(s.status.value == "DONE" for s in ordered)
+        cancelled = sum(s.status.value == "CANCELLED" for s in ordered)
+        total = len(ordered)
+        task_actions = []
+        if structural:
+            task_actions.extend(["ADD_SEGMENT", "REORDER_SEGMENTS", "CANCEL_TASK"])
+            if task.status is TaskStatus.TODO and not total:
+                task_actions.append("START_TASK")
+            if not any(s.status.value in {"TODO", "IN_PROGRESS"} for s in ordered):
+                task_actions.append("COMPLETE_TASK")
+        elif task.status in {TaskStatus.DONE, TaskStatus.CANCELLED}:
+            task_actions.append("REOPEN_TASK")
+        return cls(
+            **TaskResponse.from_domain(task).model_dump(),
+            segments=entries,
+            next_action=(NextActionResponse(
+                action_type=action.action_type.value,
+                target_id=action.target_id, label=action.label,
+            ) if action else None),
+            effective_estimate=EstimateResponse(
+                source=estimate.source.value,
+                known_subtotal_minutes=estimate.known_subtotal_minutes,
+                unestimated_units=estimate.unestimated_units,
+                total_minutes=estimate.total_minutes,
+                incomplete=estimate.incomplete,
+            ),
+            progress=ProgressResponse(
+                total_segments=total,
+                completed_segments=completed,
+                cancelled_segments=cancelled,
+                open_segments=total - completed - cancelled,
+                completion_percent=(100 * completed / total if total else None),
+            ),
+            ready_for_completion=aggregate.ready_for_completion(),
+            allowed_actions=task_actions,
+        )
