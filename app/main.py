@@ -3,6 +3,7 @@ from app.server.capacity import router as capacity_router
 from app.server.calendar import router as calendar_router
 from app.server.time_blocks import router as time_blocks_router
 from app.server.decomposition import router as decomposition_router
+from app.server.arbitration import router as arbitration_router
 from app.server.protection import router as protection_router
 from app.server.planning import router as planning_router
 from app.server.morning import router as morning_router
@@ -20,6 +21,7 @@ app.include_router(capacity_router)
 app.include_router(calendar_router)
 app.include_router(time_blocks_router)
 app.include_router(decomposition_router)
+app.include_router(arbitration_router)
 app.include_router(protection_router)
 app.include_router(planning_router)
 app.include_router(morning_router)
