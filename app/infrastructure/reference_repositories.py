@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain import Project, ProjectStatus, WorkType
@@ -33,6 +34,16 @@ class SqlProjectRepository:
             status=ProjectStatus(record.status),
         )
 
+    def list_all(self) -> list[Project]:
+        records = self._session.scalars(
+            select(ProjectRecord).order_by(ProjectRecord.title, ProjectRecord.id)
+        ).all()
+        return [
+            Project(id=UUID(record.id), title=record.title,
+                    description=record.description, status=ProjectStatus(record.status))
+            for record in records
+        ]
+
 
 class SqlWorkTypeRepository:
     def __init__(self, session: Session) -> None:
@@ -58,3 +69,13 @@ class SqlWorkTypeRepository:
             name=record.name,
             description=record.description,
         )
+
+    def list_all(self) -> list[WorkType]:
+        records = self._session.scalars(
+            select(WorkTypeRecord).order_by(WorkTypeRecord.name, WorkTypeRecord.id)
+        ).all()
+        return [
+            WorkType(id=UUID(record.id), name=record.name,
+                     description=record.description)
+            for record in records
+        ]

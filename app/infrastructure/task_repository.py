@@ -48,6 +48,40 @@ class SqlTaskRepository:
         segments = tuple(self._segment_to_domain(record) for record in records)
         return TaskAggregate(task, segments)
 
+
+    def save(self, task: Task) -> Task:
+        record = self._session.get(TaskRecord, str(task.id))
+        if record is None:
+            raise LookupError("task not found")
+        record.title = task.title
+        record.project_id = str(task.project_id) if task.project_id else None
+        record.notes = task.notes
+        record.status = task.status.value
+        record.protection = task.protection.value
+        record.work_type_id = str(task.work_type_id) if task.work_type_id else None
+        record.estimated_minutes = task.estimated_minutes
+        record.due_at = task.due_at
+        # created_at and id are intentionally immutable.
+        self._session.flush()
+        return task
+
+    def list_all(self) -> list[Task]:
+        records = self._session.scalars(
+            select(TaskRecord).order_by(TaskRecord.created_at.desc(), TaskRecord.id.desc())
+        ).all()
+        return [self._to_domain(record) for record in records]
+
+    def list_by_project(self, project_id: UUID | None) -> list[Task]:
+        query = select(TaskRecord)
+        if project_id is None:
+            query = query.where(TaskRecord.project_id.is_(None))
+        else:
+            query = query.where(TaskRecord.project_id == str(project_id))
+        records = self._session.scalars(
+            query.order_by(TaskRecord.created_at.desc(), TaskRecord.id.desc())
+        ).all()
+        return [self._to_domain(record) for record in records]
+
     def list_inbox(self) -> list[Task]:
         records = self._session.scalars(
             select(TaskRecord)
