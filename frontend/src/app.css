@@ -188,3 +188,22 @@ li small,
     grid-template-columns: 1fr;
   }
 }
+
+select,
+.clarifier input,
+.projectGroup input,
+.inbox form input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: white;
+}
+.inbox button,
+.clarifier button { padding: 10px 16px; margin-top: 12px; }
+.clarifier { display: grid; gap: 6px; }
+.clarifier .detailGrid label { min-width: 0; }
+.projectGroup { padding: 12px 0; border-top: 1px solid #e2e8f0; }
+.projectGroup small, .muted { color: #64748b; }
+.inbox h2 { margin-top: 0; }
+.inbox h3 { margin-top: 24px; }

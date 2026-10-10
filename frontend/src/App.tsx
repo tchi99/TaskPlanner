@@ -1,162 +1,288 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import "./app.css";
 
-type InboxTask = {
+type Task = {
   id: string;
   title: string;
   notes: string | null;
-  status: "INBOX";
+  status: "INBOX" | "TODO" | "IN_PROGRESS" | "DONE" | "CANCELLED";
   estimated_minutes: number | null;
   due_at: string | null;
   created_at: string;
+  project_id: string | null;
+  work_type_id: string | null;
 };
+type Project = { id: string; title: string; description: string | null; status: string };
+type WorkType = { id: string; name: string; description: string | null };
 
-export function App() {
-  const [tasks, setTasks] = useState<InboxTask[]>([]);
-  const [title, setTitle] = useState("");
-  const [notes, setNotes] = useState("");
-  const [dueAt, setDueAt] = useState("");
-  const [estimatedMinutes, setEstimatedMinutes] = useState("");
+async function jsonRequest<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(url, options);
+  if (!response.ok) {
+    const message = await response.json().catch(() => null);
+    throw new Error(typeof message?.detail === "string" ? message.detail : "Impossible de terminer l'opération.");
+  }
+  return response.json() as Promise<T>;
+}
+
+const jsonHeaders = { "Content-Type": "application/json" };
+
+function Clarifier({
+  task, projects, workTypes, onSaved,
+}: {
+  task: Task;
+  projects: Project[];
+  workTypes: WorkType[];
+  onSaved: () => Promise<void>;
+}) {
+  const [title, setTitle] = useState(task.title);
+  const [notes, setNotes] = useState(task.notes ?? "");
+  const [projectId, setProjectId] = useState(task.project_id ?? "");
+  const [workTypeId, setWorkTypeId] = useState(task.work_type_id ?? "");
+  const [minutes, setMinutes] = useState(task.estimated_minutes?.toString() ?? "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const loadInbox = useCallback(async () => {
-    const response = await fetch("/api/tasks/inbox");
-    if (!response.ok) {
-      throw new Error("Impossible de charger l'Inbox.");
-    }
-    setTasks(await response.json());
-  }, []);
-
-  useEffect(() => {
-    loadInbox().catch((loadError: unknown) => {
-      setError(loadError instanceof Error ? loadError.message : "Erreur inconnue.");
-    });
-  }, [loadInbox]);
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  async function clarify(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const trimmedTitle = title.trim();
-    if (!trimmedTitle) {
-      return;
-    }
-
     setSaving(true);
     setError("");
-
-    const body: Record<string, string | number> = { title: trimmedTitle };
-    if (notes.trim()) {
-      body.notes = notes.trim();
-    }
-    if (dueAt) {
-      body.due_at = new Date(dueAt).toISOString();
-    }
-    if (estimatedMinutes) {
-      body.estimated_minutes = Number(estimatedMinutes);
-    }
-
     try {
-      const response = await fetch("/api/tasks", {
+      await jsonRequest<Task>(`/api/tasks/${task.id}/clarify`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        headers: jsonHeaders,
+        body: JSON.stringify({
+          title: title.trim(),
+          notes: notes.trim() || null,
+          project_id: projectId || null,
+          work_type_id: workTypeId || null,
+          estimated_minutes: minutes ? Number(minutes) : null,
+        }),
       });
-      if (!response.ok) {
-        throw new Error("La capture n'a pas pu être enregistrée.");
-      }
-
-      setTitle("");
-      setNotes("");
-      setDueAt("");
-      setEstimatedMinutes("");
-      await loadInbox();
-    } catch (submitError: unknown) {
-      setError(
-        submitError instanceof Error ? submitError.message : "Erreur inconnue.",
-      );
+      await onSaved();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Erreur de clarification.");
     } finally {
       setSaving(false);
     }
   }
 
   return (
+    <form className="clarifier" onSubmit={clarify}>
+      <label>Tâche<input required maxLength={500} value={title} onChange={(e) => setTitle(e.target.value)} /></label>
+      <label>Notes<textarea value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
+      <div className="detailGrid">
+        <label>Projet
+          <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+            <option value="">Sans projet</option>
+            {projects.filter((project) => project.status === "ACTIVE").map((project) => (
+              <option key={project.id} value={project.id}>{project.title}</option>
+            ))}
+          </select>
+        </label>
+        <label>Type de travail
+          <select value={workTypeId} onChange={(e) => setWorkTypeId(e.target.value)}>
+            <option value="">Non classé</option>
+            {workTypes.map((type) => (
+              <option key={type.id} value={type.id}>{type.name}</option>
+            ))}
+          </select>
+        </label>
+        <label>Estimation (minutes)
+          <input type="number" min="1" value={minutes} onChange={(e) => setMinutes(e.target.value)} />
+        </label>
+      </div>
+      <button type="submit" disabled={saving || !title.trim()}>
+        {saving ? "Clarification…" : "Clarifier et passer à faire"}
+      </button>
+      {error && <p role="alert" className="error">{error}</p>}
+    </form>
+  );
+}
+
+export function App() {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [workTypes, setWorkTypes] = useState<WorkType[]>([]);
+  const [title, setTitle] = useState("");
+  const [notes, setNotes] = useState("");
+  const [dueAt, setDueAt] = useState("");
+  const [estimatedMinutes, setEstimatedMinutes] = useState("");
+  const [newProject, setNewProject] = useState("");
+  const [newWorkType, setNewWorkType] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const reload = useCallback(async () => {
+    const [allTasks, allProjects, allTypes] = await Promise.all([
+      jsonRequest<Task[]>("/api/tasks"),
+      jsonRequest<Project[]>("/api/projects"),
+      jsonRequest<WorkType[]>("/api/work-types"),
+    ]);
+    setTasks(allTasks);
+    setProjects(allProjects);
+    setWorkTypes(allTypes);
+  }, []);
+
+  useEffect(() => {
+    reload()
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Erreur de chargement."))
+      .finally(() => setLoading(false));
+  }, [reload]);
+
+  async function submitCapture(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!title.trim()) return;
+    setSaving(true);
+    setError("");
+    const body: Record<string, string | number> = { title: title.trim() };
+    if (notes.trim()) body.notes = notes.trim();
+    if (dueAt) body.due_at = new Date(dueAt).toISOString();
+    if (estimatedMinutes) body.estimated_minutes = Number(estimatedMinutes);
+    try {
+      await jsonRequest<Task>("/api/tasks", {
+        method: "POST", headers: jsonHeaders, body: JSON.stringify(body),
+      });
+      setTitle(""); setNotes(""); setDueAt(""); setEstimatedMinutes("");
+      await reload();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Échec de capture.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function createReference(
+    event: FormEvent<HTMLFormElement>,
+    resource: "projects" | "work-types",
+    value: string,
+  ) {
+    event.preventDefault();
+    if (!value.trim()) return;
+    setSaving(true);
+    setError("");
+    try {
+      await jsonRequest(`/api/${resource}`, {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify(resource === "projects" ? { title: value.trim() } : { name: value.trim() }),
+      });
+      if (resource === "projects") setNewProject("");
+      else setNewWorkType("");
+      await reload();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Échec de création.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function assign(taskId: string, projectId: string) {
+    setError("");
+    try {
+      await jsonRequest<Task>(`/api/tasks/${taskId}/project`, {
+        method: "PATCH",
+        headers: jsonHeaders,
+        body: JSON.stringify({ project_id: projectId || null }),
+      });
+      await reload();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Échec du rattachement.");
+    }
+  }
+
+  const inbox = tasks.filter((task) => task.status === "INBOX");
+  const clarified = tasks.filter((task) => task.status !== "INBOX");
+  return (
     <main className="shell">
       <section className="hero">
         <p className="eyebrow">TaskPlanner</p>
         <h1>Capture ce qui te passe par la tête.</h1>
-        <p>Le titre suffit. Les détails peuvent attendre la clarification.</p>
+        <p>Le titre suffit. Tu pourras préciser le projet, le type et l'estimation ensuite.</p>
       </section>
 
-      <form className="capture" onSubmit={submit}>
+      <form className="capture" onSubmit={submitCapture}>
         <div className="captureRow">
-          <input
-            autoFocus
-            aria-label="Nouvelle tâche"
-            placeholder="Nouvelle tâche…"
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-          />
+          <input autoFocus aria-label="Nouvelle tâche" placeholder="Nouvelle tâche…"
+            value={title} onChange={(e) => setTitle(e.target.value)} />
           <button disabled={saving || !title.trim()} type="submit">
             {saving ? "Ajout…" : "Ajouter"}
           </button>
         </div>
-
         <details>
           <summary>Détails facultatifs</summary>
-          <label>
-            Notes
-            <textarea
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-            />
-          </label>
+          <label>Notes<textarea value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
           <div className="detailGrid">
-            <label>
-              Échéance
-              <input
-                type="datetime-local"
-                value={dueAt}
-                onChange={(event) => setDueAt(event.target.value)}
-              />
-            </label>
-            <label>
-              Estimation (min)
-              <input
-                min="1"
-                type="number"
-                value={estimatedMinutes}
-                onChange={(event) => setEstimatedMinutes(event.target.value)}
-              />
-            </label>
+            <label>Échéance<input type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} /></label>
+            <label>Estimation (min)<input min="1" type="number" value={estimatedMinutes}
+              onChange={(e) => setEstimatedMinutes(e.target.value)} /></label>
           </div>
         </details>
-
-        {error && <p className="error">{error}</p>}
       </form>
 
-      <section className="inbox">
-        <div className="sectionHeading">
-          <h2>Inbox</h2>
-          <span>{tasks.length}</span>
-        </div>
+      {error && <p className="error" role="alert">{error} <button type="button" onClick={() => { setError(""); void reload().catch(() => setError("Échec du rechargement.")); }}>Réessayer</button></p>}
+      {loading ? <p>Chargement…</p> : (
+        <>
+          <section className="inbox">
+            <div className="sectionHeading"><h2>Inbox — à clarifier</h2><span>{inbox.length}</span></div>
+            {inbox.length === 0 ? <p className="empty">Rien à clarifier pour l'instant.</p> : (
+              <ul>{inbox.map((task) => (
+                <li key={task.id}>
+                  <Clarifier task={task} projects={projects} workTypes={workTypes} onSaved={reload} />
+                </li>
+              ))}</ul>
+            )}
+          </section>
 
-        {tasks.length === 0 ? (
-          <p className="empty">Rien à clarifier pour l'instant.</p>
-        ) : (
-          <ul>
-            {tasks.map((task) => (
-              <li key={task.id}>
-                <strong>{task.title}</strong>
-                {task.notes && <p>{task.notes}</p>}
-                <small>
-                  {task.estimated_minutes
-                    ? task.estimated_minutes + " min"
-                    : "Estimation à préciser"}
-                </small>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+          <section className="inbox">
+            <h2>Projets et types de travail</h2>
+            <div className="detailGrid">
+              <form onSubmit={(e) => createReference(e, "projects", newProject)}>
+                <label>Nouveau projet<input maxLength={500} value={newProject} onChange={(e) => setNewProject(e.target.value)} /></label>
+                <button disabled={saving || !newProject.trim()}>Créer le projet</button>
+              </form>
+              <form onSubmit={(e) => createReference(e, "work-types", newWorkType)}>
+                <label>Nouveau type de travail<input maxLength={200} value={newWorkType} onChange={(e) => setNewWorkType(e.target.value)} /></label>
+                <button disabled={saving || !newWorkType.trim()}>Ajouter le type</button>
+              </form>
+            </div>
+            {workTypes.length > 0 && <p className="muted">Types : {workTypes.map((type) => type.name).join(", ")}</p>}
+          </section>
+
+          <section className="inbox">
+            <h2>Tâches clarifiées</h2>
+            {clarified.length === 0 ? <p className="empty">Aucune tâche clarifiée.</p> : (
+              <ul>{clarified.map((task) => (
+                <li key={task.id}>
+                  <strong>{task.title}</strong>
+                  <p className="muted">{task.status} · {task.estimated_minutes === null ? "Estimation inconnue" : `${task.estimated_minutes} min`}</p>
+                  <label>Projet
+                    <select value={task.project_id ?? ""} onChange={(e) => void assign(task.id, e.target.value)}>
+                      <option value="">Sans projet</option>
+                      {projects.map((project) => (
+                        <option key={project.id} value={project.id}
+                          disabled={project.status !== "ACTIVE" && project.id !== task.project_id}>
+                          {project.title}{project.status !== "ACTIVE" ? ` (${project.status})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </li>
+              ))}</ul>
+            )}
+            <h3>Vue par projet</h3>
+            {[...projects, { id: "", title: "Sans projet", description: null, status: "ACTIVE" }].map((project) => {
+              const inProject = clarified.filter((task) => (task.project_id ?? "") === project.id);
+              return (
+                <div className="projectGroup" key={project.id || "unassigned"}>
+                  <strong>{project.title}</strong> <small>{inProject.length} tâche(s)</small>
+                  {inProject.length > 0 && <p className="muted">{inProject.map((task) => task.title).join(" · ")}</p>}
+                </div>
+              );
+            })}
+          </section>
+        </>
+      )}
     </main>
   );
 }
