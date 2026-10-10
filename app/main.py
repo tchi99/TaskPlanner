@@ -1,4 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from app.config import get_settings
+from app.security import JwtVerifier, AuthenticationFailure, AuthorizationFailure
 from app.server.capacity import router as capacity_router
 from app.server.calendar import router as calendar_router
 from app.server.time_blocks import router as time_blocks_router
@@ -17,7 +21,47 @@ from app.server.tasks import router as tasks_router
 from app.server.projects import projects_router, work_types_router
 from app.server.segments import router as segments_router
 
+# Fail closed during process initialization before accepting traffic.
+settings = get_settings()
+settings.validate_security()
 app = FastAPI(title="TaskPlanner API", version="0.1.0")
+app.state.security_settings = settings
+app.state.jwt_verifier = JwtVerifier(settings) if settings.auth_mode == "supabase" else None
+
+
+@app.middleware("http")
+async def enforce_authentication(request: Request, call_next):
+    if request.url.path == "/api/health":
+        return await call_next(request)
+    # Real CORS preflights are checked by the outer CORSMiddleware.
+    if request.method == "OPTIONS" and "access-control-request-method" in request.headers:
+        return await call_next(request)
+    security = request.app.state.security_settings
+    if security.auth_mode == "local":
+        return await call_next(request)
+    authorization = request.headers.get("authorization", "")
+    scheme, separator, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not separator or not token or token.strip() != token or " " in token:
+        return JSONResponse(status_code=401, content={"detail": "Authentification requise."},
+                            headers={"WWW-Authenticate": "Bearer"})
+    try:
+        subject = request.app.state.jwt_verifier.verify(token)
+    except AuthenticationFailure:
+        return JSONResponse(status_code=401, content={"detail": "Jeton invalide ou expiré."},
+                            headers={"WWW-Authenticate": "Bearer"})
+    except AuthorizationFailure:
+        return JSONResponse(status_code=403, content={"detail": "Accès non autorisé."})
+    request.state.user_id = subject
+    return await call_next(request)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.allowed_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 app.include_router(tasks_router)
 app.include_router(segments_router)
 app.include_router(projects_router)
