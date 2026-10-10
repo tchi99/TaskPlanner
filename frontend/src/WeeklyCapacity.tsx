@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
+import { TimeBlockPlanner } from "./TimeBlockPlanner";
 
 type WorkType = { id: string; name: string };
 type Task = { id: string; title: string; status: string };
@@ -361,6 +362,11 @@ export function WeeklyCapacity({
               <p className="muted">Ce diagnostic ne réserve aucun créneau et ne modifie aucune tâche.</p>
             </div>
           )}
+          <TimeBlockPlanner
+            key={weekStart + ":" + selected.join(",") + ":" + reloadKey}
+            weekStart={weekStart}
+            taskIds={selected.filter((id) => eligible.some((task) => task.id === id))}
+          />
         </>
       )}
     </section>
