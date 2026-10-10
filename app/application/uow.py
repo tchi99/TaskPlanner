@@ -12,6 +12,7 @@ from app.domain.time_blocks import ConfirmedTimeBlock
 from app.domain.daily import DailyReview
 from app.domain.weekly import WeeklyDecision, WeeklySubject
 from app.domain.start import ResumePoint
+from app.domain.work_sessions import WorkSession
 from datetime import datetime
 
 
@@ -75,6 +76,15 @@ class ResumePointRepository(Protocol):
     def save(self, value: ResumePoint) -> None: ...
 
 
+class WorkSessionRepository(Protocol):
+    def add(self, value: WorkSession) -> None: ...
+    def get(self, session_id: UUID) -> WorkSession | None: ...
+    def get_active(self) -> WorkSession | None: ...
+    def list_task(self, task_id: UUID) -> Sequence[WorkSession]: ...
+    def list_all(self) -> Sequence[WorkSession]: ...
+    def save(self, value: WorkSession, expected_revision: int) -> None: ...
+
+
 class UnitOfWork(Protocol):
     availability: AvailabilityRepository
     time_blocks: ConfirmedTimeBlockRepository
@@ -82,6 +92,7 @@ class UnitOfWork(Protocol):
     weekly_reviews: WeeklyReviewRepository
     tasks: TaskRepository
     resume_points: ResumePointRepository
+    work_sessions: WorkSessionRepository
     history: HistoryRepository
     projects: ProjectRepository
     work_types: WorkTypeRepository

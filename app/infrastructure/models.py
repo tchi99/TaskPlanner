@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -296,3 +297,41 @@ class ResumePointRecord(Base):
     text: Mapped[str | None] = mapped_column(Text(), nullable=True)
     revision: Mapped[int] = mapped_column(Integer(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class WorkSessionRecord(Base):
+    """Actual observed intervals, independent of task status and reserved time."""
+    __tablename__ = "work_sessions"
+    __table_args__ = (
+        Index("ix_work_sessions_task_started", "task_id", "started_at"),
+        Index("uq_work_sessions_single_active", "status", unique=True,
+              sqlite_where=text("status = 'ACTIVE'")),
+        CheckConstraint("status IN ('ACTIVE','PAUSED','FINISHED')",
+                        name="ck_work_sessions_status"),
+        CheckConstraint("active_seconds >= 0 AND interruptions >= 0 AND revision > 0",
+                        name="ck_work_sessions_counters"),
+        CheckConstraint("estimated_minutes IS NULL OR estimated_minutes > 0",
+                        name="ck_work_sessions_estimate"),
+        CheckConstraint("planned_minutes IS NULL OR planned_minutes > 0",
+                        name="ck_work_sessions_plan"),
+        CheckConstraint("(status = 'ACTIVE' AND active_since IS NOT NULL AND finished_at IS NULL) OR "
+                        "(status = 'PAUSED' AND active_since IS NULL AND finished_at IS NULL) OR "
+                        "(status = 'FINISHED' AND active_since IS NULL AND finished_at IS NOT NULL)",
+                        name="ck_work_sessions_lifecycle"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    task_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tasks.id", ondelete="RESTRICT"), nullable=False,
+    )
+    segment_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    active_since: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    active_seconds: Mapped[int] = mapped_column(Integer(), nullable=False)
+    interruptions: Mapped[int] = mapped_column(Integer(), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer(), nullable=False)
+    work_type_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    estimated_minutes: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    planned_minutes: Mapped[int | None] = mapped_column(Integer(), nullable=True)
