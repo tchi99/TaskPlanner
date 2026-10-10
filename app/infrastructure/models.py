@@ -1,9 +1,10 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     JSON,
     CheckConstraint,
     DateTime,
+    Date,
     ForeignKey,
     Index,
     Integer,
@@ -138,6 +139,21 @@ class TaskSegmentRecord(Base):
         nullable=True,
     )
     estimated_minutes: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+
+
+class AvailabilityBlockRecord(Base):
+    __tablename__ = "availability_blocks"
+    __table_args__ = (Index("ix_availability_blocks_week", "week_start"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    week_start: Mapped[date] = mapped_column(Date(), nullable=False)
+    starts_at: Mapped[str] = mapped_column(String(40), nullable=False)
+    ends_at: Mapped[str] = mapped_column(String(40), nullable=False)
+    work_type_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("work_types.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
 
 
 class HistoryEventRecord(Base):

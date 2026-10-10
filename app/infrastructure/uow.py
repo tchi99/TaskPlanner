@@ -2,6 +2,7 @@ from types import TracebackType
 
 from sqlalchemy.orm import Session
 
+from app.infrastructure.capacity_repository import SqlAvailabilityRepository
 from app.infrastructure.db import SessionLocal
 from app.infrastructure.history_repository import SqlHistoryRepository
 from app.infrastructure.reference_repositories import (
@@ -18,6 +19,7 @@ class SqlAlchemyUnitOfWork:
 
     def __enter__(self) -> "SqlAlchemyUnitOfWork":
         self.session = self._session_factory()
+        self.availability = SqlAvailabilityRepository(self.session)
         self.tasks = SqlTaskRepository(self.session)
         self.history = SqlHistoryRepository(self.session)
         self.projects = SqlProjectRepository(self.session)

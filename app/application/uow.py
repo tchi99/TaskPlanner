@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from datetime import date
 from types import TracebackType
 from typing import Protocol, Sequence
 from uuid import UUID
 
 from app.application.history import HistoryEvent
 from app.domain import Project, Task, TaskAggregate, WorkType
+from app.domain.capacity import AvailabilityBlock
 
 
 class TaskRepository(Protocol):
@@ -37,7 +39,15 @@ class WorkTypeRepository(Protocol):
     def list_all(self) -> Sequence[WorkType]: ...
 
 
+class AvailabilityRepository(Protocol):
+    def add(self, block: AvailabilityBlock) -> AvailabilityBlock: ...
+    def get(self, block_id: UUID) -> AvailabilityBlock | None: ...
+    def list_week(self, week_start: date) -> Sequence[AvailabilityBlock]: ...
+    def delete(self, block_id: UUID) -> None: ...
+
+
 class UnitOfWork(Protocol):
+    availability: AvailabilityRepository
     tasks: TaskRepository
     history: HistoryRepository
     projects: ProjectRepository
