@@ -12,6 +12,8 @@ Ce dossier contient les Architecture Decision Records (ADR) de TaskPlanner.
 - [ADR-0006](./ADR-0006-weekly-capacity.md) — disponibilité hebdomadaire manuelle et faisabilité;
 - [ADR-0009](./ADR-0009-google-calendar-read.md) — calendrier externe en surcouche de lecture seule.
 
+- [ADR-0015](./ADR-0015-start-assistance.md) — amorçage non autoritaire et point de reprise;
+
 ## Convention
 
 Chaque ADR doit contenir au minimum :

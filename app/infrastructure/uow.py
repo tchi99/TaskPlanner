@@ -13,6 +13,7 @@ from app.infrastructure.task_repository import SqlTaskRepository
 from app.infrastructure.time_block_repository import SqlConfirmedTimeBlockRepository
 from app.infrastructure.daily_repository import SqlDailyReviewRepository
 from app.infrastructure.weekly_repository import SqlWeeklyReviewRepository
+from app.infrastructure.resume_repository import SqlResumePointRepository
 
 
 class SqlAlchemyUnitOfWork:
@@ -27,6 +28,7 @@ class SqlAlchemyUnitOfWork:
         self.daily_reviews = SqlDailyReviewRepository(self.session)
         self.weekly_reviews = SqlWeeklyReviewRepository(self.session)
         self.tasks = SqlTaskRepository(self.session)
+        self.resume_points = SqlResumePointRepository(self.session)
         self.history = SqlHistoryRepository(self.session)
         self.projects = SqlProjectRepository(self.session)
         self.work_types = SqlWorkTypeRepository(self.session)

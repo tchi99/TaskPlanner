@@ -11,6 +11,7 @@ from app.domain.capacity import AvailabilityBlock
 from app.domain.time_blocks import ConfirmedTimeBlock
 from app.domain.daily import DailyReview
 from app.domain.weekly import WeeklyDecision, WeeklySubject
+from app.domain.start import ResumePoint
 from datetime import datetime
 
 
@@ -69,12 +70,18 @@ class WeeklyReviewRepository(Protocol):
     def save(self, decision: WeeklyDecision) -> None: ...
 
 
+class ResumePointRepository(Protocol):
+    def get(self, task_id: UUID) -> ResumePoint | None: ...
+    def save(self, value: ResumePoint) -> None: ...
+
+
 class UnitOfWork(Protocol):
     availability: AvailabilityRepository
     time_blocks: ConfirmedTimeBlockRepository
     daily_reviews: DailyReviewRepository
     weekly_reviews: WeeklyReviewRepository
     tasks: TaskRepository
+    resume_points: ResumePointRepository
     history: HistoryRepository
     projects: ProjectRepository
     work_types: WorkTypeRepository

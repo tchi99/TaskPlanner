@@ -273,3 +273,26 @@ class HistoryEventRecord(Base):
     correlation_id: Mapped[str] = mapped_column(String(36), nullable=False)
     causation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     payload: Mapped[dict[str, object | None]] = mapped_column(JSON(), nullable=False)
+
+
+class ResumePointRecord(Base):
+    """Explicit resume note; not an observed fact or a work session."""
+    __tablename__ = "resume_points"
+    __table_args__ = (
+        CheckConstraint("revision > 0", name="ck_resume_points_revision"),
+        CheckConstraint(
+            "action_type IN ('CLARIFY_TASK','WORK_ON_TASK','WORK_ON_SEGMENT','REVIEW_COMPLETION')",
+            name="ck_resume_points_action_type",
+        ),
+        CheckConstraint("text IS NULL OR length(text) BETWEEN 1 AND 240",
+                        name="ck_resume_points_text_length"),
+    )
+
+    task_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tasks.id", ondelete="RESTRICT"), primary_key=True,
+    )
+    action_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    text: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    revision: Mapped[int] = mapped_column(Integer(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
