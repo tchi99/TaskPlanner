@@ -1,12 +1,12 @@
 """Persistence for explicit weekly review intentions (not task changes)."""
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.domain.weekly import WeeklyAction, WeeklyDecision, WeeklySubject
-from app.infrastructure.models import WeeklyDecisionRecord
+from app.infrastructure.models import HistoryEventRecord, WeeklyDecisionRecord
 
 
 def _decode(record: WeeklyDecisionRecord) -> WeeklyDecision:
@@ -21,6 +21,16 @@ def _decode(record: WeeklyDecisionRecord) -> WeeklyDecision:
 class SqlWeeklyReviewRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
+
+    def latest_task_interactions(self, before: datetime) -> dict[UUID, datetime]:
+        """Read projection for the weekly review, not an operation on append-only history."""
+        rows = self.session.execute(
+            select(HistoryEventRecord.task_id, func.max(HistoryEventRecord.recorded_at))
+            .where(HistoryEventRecord.task_id.is_not(None),
+                   HistoryEventRecord.recorded_at < before)
+            .group_by(HistoryEventRecord.task_id)
+        ).all()
+        return {UUID(task_id): timestamp for task_id, timestamp in rows}
 
     def get(self, week_start: date, timezone_name: str,
             subject_kind: WeeklySubject, subject_id: UUID) -> WeeklyDecision | None:

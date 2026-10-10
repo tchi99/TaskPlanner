@@ -1,9 +1,4 @@
 from collections.abc import Sequence
-from datetime import datetime
-from uuid import UUID
-
-from sqlalchemy import func, select
-
 from sqlalchemy.orm import Session
 
 from app.application.history import HistoryEvent
@@ -13,15 +8,6 @@ from app.infrastructure.models import HistoryEventRecord
 class SqlHistoryRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
-
-    def latest_task_interactions(self, before: datetime) -> dict[UUID, datetime]:
-        rows = self._session.execute(
-            select(HistoryEventRecord.task_id, func.max(HistoryEventRecord.recorded_at))
-            .where(HistoryEventRecord.task_id.is_not(None),
-                   HistoryEventRecord.recorded_at < before)
-            .group_by(HistoryEventRecord.task_id)
-        ).all()
-        return {UUID(task_id): timestamp for task_id, timestamp in rows}
 
     def append(self, event: HistoryEvent) -> None:
         self._session.add(

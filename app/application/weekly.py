@@ -86,7 +86,7 @@ def read_weekly(uow: UnitOfWork, week_start: date, timezone_name: str) -> Weekly
                 )
         capacity_blocks = uow.availability.list_week(week_start)
         capacity = evaluate_week(week_start, capacity_blocks, open_aggregates)
-        interactions = uow.history.latest_task_interactions(as_of)
+        interactions = uow.weekly_reviews.latest_task_interactions(as_of)
         def make_item(task, next_action, protection):
             return WeeklyTask(
                 task_id=task.id, title=task.title, project_id=task.project_id,
