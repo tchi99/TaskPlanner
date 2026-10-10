@@ -68,3 +68,22 @@ Le Blueprint versionné `render.yaml` décrit le frontend statique et FastAPI,
 sans déploiement automatique. **Ne pas activer Render avant l'autorisation de
 mise en ligne de TP-080D.** Suivre `docs/RENDER_DEPLOYMENT.md` pour les
 origines, variables, secrets, contrôles d'accès et migrations.
+
+## Tester localement avec Docker
+
+Ce mode facultatif ne crée **aucun** service Render ni projet Supabase. Voir
+[docs/LOCAL_DOCKER.md](docs/LOCAL_DOCKER.md) pour les prérequis et les précautions
+de sécurité. Depuis PowerShell à la racine du dépôt :
+
+```powershell
+Copy-Item docker/.env.example .env  # ne pas écraser une .env existante
+notepad .env                        # remplir TASKPLANNER_DOCKER_DB_PASSWORD
+docker compose up --build -d
+```
+
+Accès : **http://localhost:5173** uniquement sur l'ordinateur local.
+Le volume PostgreSQL survit à `docker compose down` ; **ne pas lancer
+`docker compose down -v` sauf pour supprimer volontairement toutes les données de test**.
+Ce mode désactive l'authentification exclusivement pour des tests locaux;
+ne pas l'exposer sur le réseau ni l'utiliser en production.
+
