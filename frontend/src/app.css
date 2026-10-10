@@ -263,3 +263,21 @@ select,
   margin-top: 0;
 }
 .dailyChoices input { width: auto; margin-top: 4px; }
+
+
+.starterPanel {
+  margin: 16px 0;
+  padding: 16px;
+  background: white;
+  border: 1px solid #dbe3ed;
+  border-radius: 12px;
+}
+.starterPanel h4 { margin-top: 0; }
+.starterPanel button { padding: 9px 12px; margin: 0; }
+.starterSuggestion { background: #f1f5f9; border-radius: 10px; padding: 12px; margin-top: 12px; }
+.starterSuggestion ul { list-style: disc; padding-left: 22px; margin: 8px 0; }
+.starterSuggestion li { padding: 4px 0; border-top: 0; }
+.resumeMarker { border-left: 3px solid #64748b; padding-left: 10px; }
+.quickCapture { border-top: 1px solid #e2e8f0; padding-top: 12px; margin-top: 18px; }
+.quickCapture input { width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 10px; }
+.quickCapture button { margin-top: 10px; }

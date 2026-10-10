@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { DecompositionAssistant } from "./DecompositionAssistant";
+import { StarterAssistant } from "./StarterAssistant";
 
 type WorkType = { id: string; name: string };
 type Segment = {
@@ -255,6 +256,7 @@ export function TaskSegments({
               : `${detail.progress.completed_segments}/${detail.progress.total_segments} terminés · ${detail.progress.cancelled_segments} annulés · ${detail.progress.open_segments} ouverts`}</p>
             {detail.ready_for_completion && <p>Prête à être clôturée explicitement (aucune clôture automatique).</p>}
           </div>
+          <StarterAssistant key={detail.next_action?.action_type + ":" + detail.next_action?.target_id} taskId={taskId} onCapture={onChanged} />
           <h4>Évaluer un déplacement sans l'appliquer</h4>
           <p className="muted">Simulation uniquement : indique un début actuel supposé et un nouveau début. Aucun créneau ni échéance n'est modifié.</p>
           <form className="segmentForm" onSubmit={(event) => void previewDisplacement(event)}>
