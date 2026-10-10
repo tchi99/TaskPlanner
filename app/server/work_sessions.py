@@ -76,6 +76,8 @@ class TaskObservationResponse(BaseModel):
 
 class WorkTypeStatisticsResponse(BaseModel):
     work_type_id: UUID | None
+    work_type_name: str
+    context: Literal["TASK", "SEGMENT"]
     finished_sessions: int
     median_session_minutes: float | None
     interruption_frequency: float | None

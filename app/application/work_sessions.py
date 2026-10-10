@@ -153,12 +153,13 @@ def descriptive_statistics(uow: UnitOfWork) -> list[dict]:
     """
     with uow:
         sessions = uow.work_sessions.list_all()
-        grouped: dict[UUID | None, list[WorkSession]] = {}
+        grouped: dict[tuple[UUID | None, str], list[WorkSession]] = {}
         for session in sessions:
-            grouped.setdefault(session.work_type_id, []).append(session)
+            context = "SEGMENT" if session.segment_id else "TASK"
+            grouped.setdefault((session.work_type_id, context), []).append(session)
         aggregates = {}
         results = []
-        for type_id, items in sorted(grouped.items(), key=lambda pair: str(pair[0] or "")):
+        for (type_id, context), items in sorted(grouped.items(), key=lambda pair: str(pair[0])):
             finished = [s for s in items if s.status is SessionStatus.FINISHED]
             units: dict[tuple[UUID, UUID | None], list[WorkSession]] = {}
             for session in items:
@@ -180,6 +181,9 @@ def descriptive_statistics(uow: UnitOfWork) -> list[dict]:
             deviations = [round(observed - estimate, 2) for estimate, observed in comparisons]
             results.append({
                 "work_type_id": type_id,
+                "work_type_name": (uow.work_types.get(type_id).name
+                                   if type_id and uow.work_types.get(type_id) else "Non classé"),
+                "context": context,
                 "finished_sessions": len(finished),
                 "median_session_minutes": (
                     round(median(s.active_seconds / 60 for s in finished), 2)

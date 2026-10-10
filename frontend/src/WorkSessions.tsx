@@ -25,6 +25,8 @@ type Observation = {
 };
 type Stats = {
   work_type_id: string | null;
+  work_type_name: string;
+  context: "TASK" | "SEGMENT";
   finished_sessions: number;
   median_session_minutes: number | null;
   interruption_frequency: number | null;
@@ -181,8 +183,8 @@ export function WorkSessions({ taskId, nextAction, suggestedMinutes }: {
             <details>
               <summary>Calibration descriptive par type de travail</summary>
               {stats.map((item) => (
-                <p key={item.work_type_id ?? "none"}>
-                  {item.work_type_id ?? "Non classé"} : {item.finished_sessions} session(s),
+                <p key={(item.work_type_id ?? "none") + item.context}>
+                  {item.work_type_name} ({item.context === "TASK" ? "tâche" : "segment"}) : {item.finished_sessions} session(s),
                   durée médiane {item.median_session_minutes ?? "inconnue"} min,
                   interruptions {item.interruption_frequency === null ? "inconnues" : `${Math.round(100 * item.interruption_frequency)} %`}.
                   {item.calibration_ready
