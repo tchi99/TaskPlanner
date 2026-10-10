@@ -1,3 +1,4 @@
+import { apiFetch } from "./auth";
 import { useEffect, useState } from "react";
 import { BehaviorPanel } from "./BehaviorPanel";
 
@@ -66,7 +67,7 @@ function shiftDays(value: string, days: number): string {
 }
 
 async function api<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, options);
+  const response = await apiFetch(url, options);
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     throw new Error(typeof body?.detail === "string" ? body.detail : "Revue hebdomadaire indisponible.");

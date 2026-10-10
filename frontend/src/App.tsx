@@ -1,3 +1,4 @@
+import { apiFetch } from "./auth";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import "./app.css";
 import { TaskSegments } from "./TaskSegments";
@@ -22,7 +23,7 @@ type Project = { id: string; title: string; description: string | null; status: 
 type WorkType = { id: string; name: string; description: string | null };
 
 async function jsonRequest<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, options);
+  const response = await apiFetch(url, options);
   if (!response.ok) {
     const message = await response.json().catch(() => null);
     throw new Error(typeof message?.detail === "string" ? message.detail : "Impossible de terminer l'opération.");
