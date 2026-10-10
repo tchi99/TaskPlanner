@@ -185,6 +185,23 @@ class ConfirmedTimeBlockRecord(Base):
     ends_at: Mapped[str] = mapped_column(String(40), nullable=False)
 
 
+class DailyReviewRecord(Base):
+    """Daily choices only, not a task or calendar mutation."""
+    __tablename__ = "daily_reviews"
+    __table_args__ = (
+        Index("ix_daily_reviews_timezone_day", "timezone_name", "day"),
+        CheckConstraint("state IN ('OPEN','CLOSED')", name="ck_daily_reviews_state"),
+        CheckConstraint("revision > 0", name="ck_daily_reviews_revision"),
+    )
+
+    day: Mapped[date] = mapped_column(Date(), primary_key=True)
+    timezone_name: Mapped[str] = mapped_column(String(100), primary_key=True)
+    selected_task_ids: Mapped[list[str]] = mapped_column(JSON(), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    followups: Mapped[list[dict[str, str]]] = mapped_column(JSON(), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer(), nullable=False)
+
+
 class HistoryEventRecord(Base):
     __tablename__ = "history_events"
     __table_args__ = (
