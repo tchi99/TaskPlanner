@@ -42,7 +42,8 @@ def upgrade() -> None:
     op.create_index("ix_work_sessions_task_started", "work_sessions",
                     ["task_id", "started_at"])
     op.create_index("uq_work_sessions_single_active", "work_sessions", ["status"],
-                    unique=True, sqlite_where=sa.text("status = 'ACTIVE'"))
+                    unique=True, sqlite_where=sa.text("status = 'ACTIVE'"),
+                    postgresql_where=sa.text("status = 'ACTIVE'"))
 
 
 def downgrade() -> None:

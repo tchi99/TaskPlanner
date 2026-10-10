@@ -16,6 +16,7 @@ class Settings(BaseSettings):
 
     env: str = "development"
     database_url: str = "sqlite:///./taskplanner.db"
+    database_schema: str = "taskplanner"
 
     # Local mode requires an explicit opt-in and is forbidden in production.
     auth_mode: Literal["local", "supabase"] = "supabase"
