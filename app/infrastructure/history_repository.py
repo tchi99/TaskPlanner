@@ -38,6 +38,12 @@ class SqlHistoryRepository:
         for event in events:
             self.append(event)
 
+class SqlHistoryReadRepository:
+    """Read-side projection; intentionally separate from append-only writes."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
     def list_all(self, before: datetime | None = None) -> list[HistoryEvent]:
         query = select(HistoryEventRecord)
         if before is not None:
