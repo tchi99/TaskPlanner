@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import "./app.css";
+import { TaskSegments } from "./TaskSegments";
 
 type Task = {
   id: string;
@@ -109,6 +110,7 @@ export function App() {
   const [estimatedMinutes, setEstimatedMinutes] = useState("");
   const [newProject, setNewProject] = useState("");
   const [newWorkType, setNewWorkType] = useState("");
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -255,6 +257,7 @@ export function App() {
               <ul>{clarified.map((task) => (
                 <li key={task.id}>
                   <strong>{task.title}</strong>
+                  <button className="detailToggle" type="button" onClick={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}>{expandedTaskId === task.id ? "Masquer les segments" : "Détail et segments"}</button>
                   <p className="muted">{task.status} · {task.estimated_minutes === null ? "Estimation inconnue" : `${task.estimated_minutes} min`}</p>
                   <label>Projet
                     <select value={task.project_id ?? ""} onChange={(e) => void assign(task.id, e.target.value)}>
@@ -267,6 +270,7 @@ export function App() {
                       ))}
                     </select>
                   </label>
+                  {expandedTaskId === task.id && <TaskSegments key={task.id} taskId={task.id} workTypes={workTypes} onChanged={reload} />}
                 </li>
               ))}</ul>
             )}
