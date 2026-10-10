@@ -125,6 +125,11 @@ class TaskClarificationRequest(BaseModel):
         return value
 
 
+class TaskProtectionRequest(BaseModel):
+    protection: ProtectionLevel
+    confirm_downgrade: bool = False
+
+
 class TaskProjectRequest(BaseModel):
     project_id: UUID | None
 
@@ -133,6 +138,7 @@ class SegmentCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=500)
     estimated_minutes: int | None = Field(default=None, gt=0)
     work_type_id: UUID | None = None
+    protection_override: ProtectionLevel | None = None
 
     @field_validator("title")
     @classmethod
@@ -146,6 +152,8 @@ class SegmentUpdateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=500)
     estimated_minutes: int | None = Field(default=None, gt=0)
     work_type_id: UUID | None = None
+    protection_override: ProtectionLevel | None = None
+    confirm_protection_downgrade: bool = False
 
     @field_validator("title")
     @classmethod
@@ -192,6 +200,7 @@ class SegmentResponse(BaseModel):
     effective_work_type_id: UUID | None
     work_type_origin: str
     effective_protection: str
+    protection_override: ProtectionLevel | None
     allowed_actions: list[str]
 
 
@@ -228,6 +237,7 @@ class TaskDetailResponse(TaskResponse):
                 effective_work_type_id=work_type.work_type_id,
                 work_type_origin=work_type.origin.value,
                 effective_protection=aggregate.effective_segment_protection(segment.id).value,
+                protection_override=segment.protection_override,
                 allowed_actions=actions,
             ))
         action = aggregate.next_action()

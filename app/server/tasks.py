@@ -6,7 +6,7 @@ from app.application.clarification import (
     ClarifyTaskCommand, assign_task_project, clarify_task, get_task, list_tasks,
 )
 from app.server.errors import invoke
-from app.server.schemas import TaskClarificationRequest, TaskProjectRequest
+from app.server.schemas import TaskClarificationRequest, TaskProjectRequest, TaskProtectionRequest
 from app.application.tasks import CaptureTaskCommand, capture_task, list_inbox
 from app.application.uow import UnitOfWork
 from app.infrastructure.uow import get_uow
@@ -63,6 +63,19 @@ def clarify(
             ),
         ))
     )
+
+
+@router.patch("/{task_id}/protection", response_model=TaskResponse)
+def protect_task(
+    task_id: UUID, payload: TaskProtectionRequest,
+    uow: UnitOfWork = Depends(get_uow),
+) -> TaskResponse:
+    from app.application.segments import change_task_protection
+    return TaskResponse.from_domain(invoke(
+        lambda: change_task_protection(
+            uow, task_id, payload.protection, payload.confirm_downgrade
+        ).task
+    ))
 
 
 @router.patch("/{task_id}/project", response_model=TaskResponse)

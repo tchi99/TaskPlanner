@@ -8,6 +8,7 @@ type Task = {
   title: string;
   notes: string | null;
   status: "INBOX" | "TODO" | "IN_PROGRESS" | "DONE" | "CANCELLED";
+  protection: "PROTECTED" | "REPLANNABLE" | "FLEXIBLE";
   estimated_minutes: number | null;
   due_at: string | null;
   created_at: string;
@@ -194,6 +195,23 @@ export function App() {
     }
   }
 
+  async function changeProtection(taskId: string, protection: Task["protection"]) {
+    const rank = { FLEXIBLE: 0, REPLANNABLE: 1, PROTECTED: 2 };
+    const before = tasks.find((task) => task.id === taskId)?.protection;
+    const downgrade = before !== undefined && rank[protection] < rank[before];
+    if (downgrade && !window.confirm("Abaisser la protection de ce travail ? Confirmer cet arbitrage explicite.")) return;
+    setError("");
+    try {
+      await jsonRequest<Task>(`/api/tasks/${taskId}/protection`, {
+        method: "PATCH", headers: jsonHeaders,
+        body: JSON.stringify({ protection, confirm_downgrade: downgrade }),
+      });
+      await reload();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Échec du changement de protection.");
+    }
+  }
+
   const inbox = tasks.filter((task) => task.status === "INBOX");
   const clarified = tasks.filter((task) => task.status !== "INBOX");
   return (
@@ -262,6 +280,13 @@ export function App() {
                   <strong>{task.title}</strong>
                   <button className="detailToggle" type="button" onClick={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}>{expandedTaskId === task.id ? "Masquer les segments" : "Détail et segments"}</button>
                   <p className="muted">{task.status} · {task.estimated_minutes === null ? "Estimation inconnue" : `${task.estimated_minutes} min`}</p>
+                  <label>Protection
+                    <select value={task.protection} onChange={(e) => void changeProtection(task.id, e.target.value as Task["protection"])}>
+                      <option value="PROTECTED">Protégé — ne doit pas dérailler</option>
+                      <option value="REPLANNABLE">Important — replanifiable</option>
+                      <option value="FLEXIBLE">Flexible — peut glisser</option>
+                    </select>
+                  </label>
                   <label>Projet
                     <select value={task.project_id ?? ""} onChange={(e) => void assign(task.id, e.target.value)}>
                       <option value="">Sans projet</option>

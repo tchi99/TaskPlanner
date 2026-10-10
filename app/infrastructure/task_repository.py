@@ -108,6 +108,9 @@ class SqlTaskRepository:
             record.work_type_id = (
                 str(segment.work_type_id) if segment.work_type_id else None
             )
+            record.protection_override = (
+                segment.protection_override.value if segment.protection_override else None
+            )
         self._session.flush()
         return aggregate
 
@@ -163,6 +166,7 @@ class SqlTaskRepository:
                 str(segment.work_type_id) if segment.work_type_id else None
             ),
             estimated_minutes=segment.estimated_minutes,
+            protection_override=(segment.protection_override.value if segment.protection_override else None),
         )
 
     @staticmethod
@@ -192,4 +196,7 @@ class SqlTaskRepository:
                 UUID(record.work_type_id) if record.work_type_id else None
             ),
             estimated_minutes=record.estimated_minutes,
+            protection_override=(
+                ProtectionLevel(record.protection_override) if record.protection_override else None
+            ),
         )

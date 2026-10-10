@@ -5,7 +5,7 @@ from enum import StrEnum
 from typing import Generic, TypeVar
 from uuid import UUID
 
-from .model import SegmentStatus, TaskStatus
+from .model import ProtectionLevel, SegmentStatus, TaskStatus
 
 
 class DomainFactType(StrEnum):
@@ -17,6 +17,7 @@ class DomainFactType(StrEnum):
     TASK_REOPENED = "TASK_REOPENED"
     TASK_ESTIMATE_CHANGED = "TASK_ESTIMATE_CHANGED"
     TASK_WORK_TYPE_CHANGED = "TASK_WORK_TYPE_CHANGED"
+    TASK_PROTECTION_CHANGED = "TASK_PROTECTION_CHANGED"
     SEGMENT_ADDED = "SEGMENT_ADDED"
     SEGMENT_STARTED = "SEGMENT_STARTED"
     SEGMENT_COMPLETED = "SEGMENT_COMPLETED"
@@ -24,6 +25,7 @@ class DomainFactType(StrEnum):
     SEGMENT_REMOVED = "SEGMENT_REMOVED"
     SEGMENT_ESTIMATE_CHANGED = "SEGMENT_ESTIMATE_CHANGED"
     SEGMENT_WORK_TYPE_CHANGED = "SEGMENT_WORK_TYPE_CHANGED"
+    SEGMENT_PROTECTION_CHANGED = "SEGMENT_PROTECTION_CHANGED"
     SEGMENT_RENAMED = "SEGMENT_RENAMED"
     SEGMENT_REORDERED = "SEGMENT_REORDERED"
 
@@ -70,6 +72,12 @@ class WorkTypeChanged:
 
 
 @dataclass(frozen=True, slots=True)
+class ProtectionChanged:
+    before: ProtectionLevel | None
+    after: ProtectionLevel | None
+
+
+@dataclass(frozen=True, slots=True)
 class SegmentPosition:
     position: int
 
@@ -86,6 +94,7 @@ FactPayload = (
     | SegmentStatusChanged
     | EstimateChanged
     | WorkTypeChanged
+    | ProtectionChanged
     | SegmentPosition
     | SegmentMoved
     | None
