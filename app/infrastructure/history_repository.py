@@ -1,5 +1,4 @@
 from collections.abc import Sequence
-
 from sqlalchemy.orm import Session
 
 from app.application.history import HistoryEvent

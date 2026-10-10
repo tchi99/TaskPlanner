@@ -4,6 +4,7 @@ import { TaskSegments } from "./TaskSegments";
 import { WeeklyCapacity } from "./WeeklyCapacity";
 import { MorningReview } from "./MorningReview";
 import { DailyReview } from "./DailyReview";
+import { WeeklyReview } from "./WeeklyReview";
 
 type Task = {
   id: string;
@@ -248,6 +249,7 @@ export function App() {
         <>
           <MorningReview tasks={tasks} />
           <DailyReview tasks={tasks} />
+          <WeeklyReview />
           <section className="inbox">
             <div className="sectionHeading"><h2>Inbox — à clarifier</h2><span>{inbox.length}</span></div>
             {inbox.length === 0 ? <p className="empty">Rien à clarifier pour l'instant.</p> : (

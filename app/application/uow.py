@@ -10,6 +10,8 @@ from app.domain import Project, Task, TaskAggregate, WorkType
 from app.domain.capacity import AvailabilityBlock
 from app.domain.time_blocks import ConfirmedTimeBlock
 from app.domain.daily import DailyReview
+from app.domain.weekly import WeeklyDecision, WeeklySubject
+from datetime import datetime
 
 
 class TaskRepository(Protocol):
@@ -59,10 +61,19 @@ class DailyReviewRepository(Protocol):
     def save(self, review: DailyReview) -> None: ...
 
 
+class WeeklyReviewRepository(Protocol):
+    def latest_task_interactions(self, before: datetime) -> dict[UUID, datetime]: ...
+    def get(self, week_start: date, timezone_name: str,
+            subject_kind: WeeklySubject, subject_id: UUID) -> WeeklyDecision | None: ...
+    def list_week(self, week_start: date, timezone_name: str) -> Sequence[WeeklyDecision]: ...
+    def save(self, decision: WeeklyDecision) -> None: ...
+
+
 class UnitOfWork(Protocol):
     availability: AvailabilityRepository
     time_blocks: ConfirmedTimeBlockRepository
     daily_reviews: DailyReviewRepository
+    weekly_reviews: WeeklyReviewRepository
     tasks: TaskRepository
     history: HistoryRepository
     projects: ProjectRepository
