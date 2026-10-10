@@ -196,11 +196,15 @@ export function App() {
   }
 
   async function changeProtection(taskId: string, protection: Task["protection"]) {
+    const rank = { FLEXIBLE: 0, REPLANNABLE: 1, PROTECTED: 2 };
+    const before = tasks.find((task) => task.id === taskId)?.protection;
+    const downgrade = before !== undefined && rank[protection] < rank[before];
+    if (downgrade && !window.confirm("Abaisser la protection de ce travail ? Confirmer cet arbitrage explicite.")) return;
     setError("");
     try {
       await jsonRequest<Task>(`/api/tasks/${taskId}/protection`, {
         method: "PATCH", headers: jsonHeaders,
-        body: JSON.stringify({ protection }),
+        body: JSON.stringify({ protection, confirm_downgrade: downgrade }),
       });
       await reload();
     } catch (err: unknown) {

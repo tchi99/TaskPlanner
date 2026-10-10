@@ -18,6 +18,7 @@ class EditSegmentCommand:
     estimated_minutes: int | None = None
     work_type_id: UUID | None = None
     protection_override: ProtectionLevel | None = None
+    confirm_protection_downgrade: bool = False
 
 
 def get_task_aggregate(uow: UnitOfWork, task_id: UUID) -> TaskAggregate:
@@ -67,7 +68,8 @@ def add_segment(
 
 def edit_segment(uow: UnitOfWork, command: EditSegmentCommand) -> TaskAggregate:
     if not command.changed_fields <= {
-        "title", "estimated_minutes", "work_type_id", "protection_override"
+        "title", "estimated_minutes", "work_type_id", "protection_override",
+        "confirm_protection_downgrade"
     }:
         raise ValueError("unsupported segment field")
 
@@ -93,9 +95,18 @@ def edit_segment(uow: UnitOfWork, command: EditSegmentCommand) -> TaskAggregate:
             aggregate = result.value
             facts.extend(result.facts)
         if "protection_override" in command.changed_fields:
+            before = aggregate.effective_segment_protection(command.segment_id)
             result = aggregate.change_segment_protection(
                 command.segment_id, command.protection_override
             )
+            after = result.value.effective_segment_protection(command.segment_id)
+            rank = {
+                ProtectionLevel.FLEXIBLE: 0,
+                ProtectionLevel.REPLANNABLE: 1,
+                ProtectionLevel.PROTECTED: 2,
+            }
+            if rank[after] < rank[before] and not command.confirm_protection_downgrade:
+                raise ValueError("lowering segment protection requires explicit confirmation")
             aggregate = result.value
             facts.extend(result.facts)
         return MutationResult(aggregate, tuple(facts))
@@ -148,8 +159,16 @@ def transition_task(uow: UnitOfWork, task_id: UUID, action: str) -> TaskAggregat
 
 
 def change_task_protection(
-    uow: UnitOfWork, task_id: UUID, protection: ProtectionLevel
+    uow: UnitOfWork, task_id: UUID, protection: ProtectionLevel,
+    confirm_downgrade: bool = False,
 ) -> TaskAggregate:
-    return _mutate(
-        uow, task_id, lambda aggregate, _: aggregate.change_task_protection(protection)
-    )
+    def change(aggregate: TaskAggregate, _: UnitOfWork):
+        rank = {
+            ProtectionLevel.FLEXIBLE: 0,
+            ProtectionLevel.REPLANNABLE: 1,
+            ProtectionLevel.PROTECTED: 2,
+        }
+        if rank[protection] < rank[aggregate.task.protection] and not confirm_downgrade:
+            raise ValueError("lowering task protection requires explicit confirmation")
+        return aggregate.change_task_protection(protection)
+    return _mutate(uow, task_id, change)

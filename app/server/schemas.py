@@ -127,6 +127,7 @@ class TaskClarificationRequest(BaseModel):
 
 class TaskProtectionRequest(BaseModel):
     protection: ProtectionLevel
+    confirm_downgrade: bool = False
 
 
 class TaskProjectRequest(BaseModel):
@@ -152,6 +153,7 @@ class SegmentUpdateRequest(BaseModel):
     estimated_minutes: int | None = Field(default=None, gt=0)
     work_type_id: UUID | None = None
     protection_override: ProtectionLevel | None = None
+    confirm_protection_downgrade: bool = False
 
     @field_validator("title")
     @classmethod

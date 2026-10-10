@@ -39,6 +39,9 @@ def test_task_segment_override_history_and_displacement_preview(runtime):
     assert client.patch(f"/api/tasks/{task_id}/protection", json={
         "protection": "PROTECTED"
     }).json()["protection"] == "PROTECTED"
+    assert client.patch(f"/api/tasks/{task_id}/protection", json={
+        "protection": "FLEXIBLE"
+    }).status_code == 422
     response = client.post(f"/api/tasks/{task_id}/segments", json={
         "title": "Segment", "protection_override": "FLEXIBLE",
         "estimated_minutes": 30
@@ -90,6 +93,15 @@ def test_task_segment_override_history_and_displacement_preview(runtime):
         assert kinds.count("SEGMENT_PROTECTION_CHANGED") == 1
         assert events[-1].payload == {"before": "FLEXIBLE", "after": "PROTECTED"}
         assert events[-1].source == "USER"
+    assert client.patch(f"/api/tasks/{task_id}/protection", json={
+        "protection": "FLEXIBLE", "confirm_downgrade": True
+    }).json()["protection"] == "FLEXIBLE"
+    assert client.patch(f"/api/tasks/{task_id}/segments/{segment_id}", json={
+        "protection_override": "FLEXIBLE"
+    }).status_code == 422
+    assert client.patch(f"/api/tasks/{task_id}/segments/{segment_id}", json={
+        "protection_override": "FLEXIBLE", "confirm_protection_downgrade": True
+    }).status_code == 200
 
 
 def test_nonexistent_task_and_no_mutations_for_preview(runtime):

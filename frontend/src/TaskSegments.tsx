@@ -165,11 +165,18 @@ export function TaskSegments({
   async function edit(event: FormEvent<HTMLFormElement>, segment: Segment) {
     event.preventDefault();
     if (!editTitle.trim()) return;
+    const rank: Record<string, number> = { FLEXIBLE: 0, REPLANNABLE: 1, PROTECTED: 2 };
+    const chosen = editProtection || detail?.protection || "REPLANNABLE";
+    const parent = detail?.protection || "REPLANNABLE";
+    const after = Math.max(rank[chosen], rank[parent]);
+    const downgrade = after < rank[segment.effective_protection];
+    if (downgrade && !window.confirm("Ce changement abaisse la protection effective. Confirmer ?")) return;
     if (await mutate(`/segments/${segment.id}`, "PATCH", {
       title: editTitle.trim(),
       estimated_minutes: editMinutes ? Number(editMinutes) : null,
       work_type_id: editType || null,
       protection_override: editProtection || null,
+      confirm_protection_downgrade: downgrade,
     })) setEditing(null);
   }
 

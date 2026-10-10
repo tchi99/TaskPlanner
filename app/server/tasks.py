@@ -72,7 +72,9 @@ def protect_task(
 ) -> TaskResponse:
     from app.application.segments import change_task_protection
     return TaskResponse.from_domain(invoke(
-        lambda: change_task_protection(uow, task_id, payload.protection).task
+        lambda: change_task_protection(
+            uow, task_id, payload.protection, payload.confirm_downgrade
+        ).task
     ))
 
 

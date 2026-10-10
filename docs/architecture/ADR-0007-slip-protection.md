@@ -14,11 +14,14 @@ exposer les conséquences d'un report et laisser l'utilisateur décider.
 
 - La tâche conserve sa protection `PROTECTED`, `REPLANNABLE` ou `FLEXIBLE`.
   Une commande explicite peut la modifier, avec fait métier append-only.
+  Abaisser sa protection requiert un indicateur explicite de confirmation dans
+  la commande API et une confirmation visible dans l'interface.
 - Un segment possède une surcharge facultative, `NULL` signifiant héritage.
   Sa protection **effective est la plus forte** de la tâche et de la surcharge :
   une dérogation ne peut pas affaiblir implicitement un engagement parent.
   La surcharge peut être supprimée par `null`; aucun segment ne devient
-  un agrégat autonome.
+  un agrégat autonome. Abaisser la protection effective d'un segment requiert
+  la même confirmation explicite.
 - Une simulation de déplacement reçoit deux instants hypothétiques explicites,
   originaux et proposés, tous deux avec fuseau. Ce ne sont **pas** des créneaux
   enregistrés. Le backend détermine la protection effective, le retard mesuré,
