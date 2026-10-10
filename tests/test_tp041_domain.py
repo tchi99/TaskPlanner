@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from app.domain.calendar import CalendarCommitment
 from app.domain.capacity import AvailabilityBlock
-from app.domain.model import Task, TaskSegment, TaskStatus
+from app.domain.model import SegmentStatus, Task, TaskSegment
 from app.domain.task_rules import TaskAggregate
 from app.domain.time_blocks import ConfirmedTimeBlock, suggest_time_blocks
 
@@ -50,7 +50,7 @@ def test_splits_work_across_free_spans_preserving_user_order_and_deadline():
               availability(moment(5, 11), moment(5, 12), focus)]
     first = Task(title="First", work_type_id=focus, estimated_minutes=80)
     second = Task(title="Second", work_type_id=focus, estimated_minutes=20,
-                  due_at=moment(5, 11, 30))
+                  due_at=moment(5, 11, 45))
     preview = suggest_time_blocks(WEEK, "America/Toronto", blocks, [], [], [
         TaskAggregate(first), TaskAggregate(second),
     ])
@@ -86,7 +86,7 @@ def test_reserved_slots_and_unknown_estimates_are_not_silently_overwritten():
 def test_segments_are_only_scheduled_as_open_leaf_units():
     task = Task(title="Parent", estimated_minutes=999)
     done = TaskSegment(task_id=task.id, title="Done", position=0, estimated_minutes=100,
-                       status="DONE")
+                       status=SegmentStatus.DONE)
     opened = TaskSegment(task_id=task.id, title="Open", position=1, estimated_minutes=20)
     preview = suggest_time_blocks(
         WEEK, "UTC", [availability(moment(5, 9), moment(5, 10))], [], [],
