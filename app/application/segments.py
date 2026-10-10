@@ -6,7 +6,7 @@ from uuid import UUID
 
 from app.application.history import HistorySource, build_history_events
 from app.application.uow import UnitOfWork
-from app.domain import MutationResult, TaskAggregate
+from app.domain import MutationResult, ProtectionLevel, TaskAggregate
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,6 +17,7 @@ class EditSegmentCommand:
     title: str | None = None
     estimated_minutes: int | None = None
     work_type_id: UUID | None = None
+    protection_override: ProtectionLevel | None = None
 
 
 def get_task_aggregate(uow: UnitOfWork, task_id: UUID) -> TaskAggregate:
@@ -53,19 +54,20 @@ def _validate_work_type(uow: UnitOfWork, work_type_id: UUID | None) -> None:
 def add_segment(
     uow: UnitOfWork, task_id: UUID, title: str,
     estimated_minutes: int | None = None, work_type_id: UUID | None = None,
+    protection_override: ProtectionLevel | None = None,
 ) -> TaskAggregate:
     def change(aggregate: TaskAggregate, active: UnitOfWork):
         _validate_work_type(active, work_type_id)
         return aggregate.add_segment(
             title.strip(), estimated_minutes=estimated_minutes,
-            work_type_id=work_type_id,
+            work_type_id=work_type_id, protection_override=protection_override,
         )
     return _mutate(uow, task_id, change)
 
 
 def edit_segment(uow: UnitOfWork, command: EditSegmentCommand) -> TaskAggregate:
     if not command.changed_fields <= {
-        "title", "estimated_minutes", "work_type_id"
+        "title", "estimated_minutes", "work_type_id", "protection_override"
     }:
         raise ValueError("unsupported segment field")
 
@@ -87,6 +89,12 @@ def edit_segment(uow: UnitOfWork, command: EditSegmentCommand) -> TaskAggregate:
             _validate_work_type(active, command.work_type_id)
             result = aggregate.change_segment_work_type(
                 command.segment_id, command.work_type_id
+            )
+            aggregate = result.value
+            facts.extend(result.facts)
+        if "protection_override" in command.changed_fields:
+            result = aggregate.change_segment_protection(
+                command.segment_id, command.protection_override
             )
             aggregate = result.value
             facts.extend(result.facts)
@@ -136,4 +144,12 @@ def transition_task(uow: UnitOfWork, task_id: UUID, action: str) -> TaskAggregat
         raise ValueError("unsupported task transition")
     return _mutate(
         uow, task_id, lambda aggregate, _: commands[action](aggregate)
+    )
+
+
+def change_task_protection(
+    uow: UnitOfWork, task_id: UUID, protection: ProtectionLevel
+) -> TaskAggregate:
+    return _mutate(
+        uow, task_id, lambda aggregate, _: aggregate.change_task_protection(protection)
     )

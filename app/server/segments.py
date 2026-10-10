@@ -35,7 +35,8 @@ def create(
     uow: UnitOfWork = Depends(get_uow),
 ) -> TaskDetailResponse:
     return TaskDetailResponse.from_aggregate(invoke(lambda: add_segment(
-        uow, task_id, payload.title, payload.estimated_minutes, payload.work_type_id
+        uow, task_id, payload.title, payload.estimated_minutes,
+        payload.work_type_id, payload.protection_override
     )))
 
 

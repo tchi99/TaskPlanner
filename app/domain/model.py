@@ -118,10 +118,13 @@ class TaskSegment:
     position: int = 0
     work_type_id: UUID | None = None
     estimated_minutes: int | None = None
+    protection_override: ProtectionLevel | None = None
     id: UUID = field(default_factory=uuid4)
 
     def __post_init__(self) -> None:
         _require_text(self.title, "title")
+        if self.protection_override is not None and not isinstance(self.protection_override, ProtectionLevel):
+            raise ValueError("protection_override must be a ProtectionLevel")
         if not isinstance(self.status, SegmentStatus):
             raise ValueError("status must be a SegmentStatus")
         _require_non_negative(self.position, "position")

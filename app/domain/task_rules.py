@@ -12,6 +12,7 @@ from .facts import (
     EstimateChanged,
     FactRole,
     MutationResult,
+    ProtectionChanged,
     SegmentPosition,
     SegmentMoved,
     SegmentStatusChanged,
@@ -260,12 +261,45 @@ class TaskAggregate:
             ),
         )
 
+    def change_task_protection(
+        self, protection: ProtectionLevel
+    ) -> MutationResult[TaskAggregate]:
+        if not isinstance(protection, ProtectionLevel):
+            raise ValueError("protection must be a ProtectionLevel")
+        if self.task.protection == protection:
+            return MutationResult(self)
+        updated = TaskAggregate(replace(self.task, protection=protection), self.segments)
+        return MutationResult(updated, (
+            self._task_fact(
+                DomainFactType.TASK_PROTECTION_CHANGED, FactRole.DIRECT,
+                ProtectionChanged(self.task.protection, protection),
+            ),
+        ))
+
+    def change_segment_protection(
+        self, segment_id: UUID, override: ProtectionLevel | None
+    ) -> MutationResult[TaskAggregate]:
+        self._ensure_structure_mutable()
+        if override is not None and not isinstance(override, ProtectionLevel):
+            raise ValueError("protection_override must be a ProtectionLevel")
+        segment = self._segment(segment_id)
+        if segment.protection_override == override:
+            return MutationResult(self)
+        updated = self._replace_segment(replace(segment, protection_override=override))
+        return MutationResult(updated, (
+            self._segment_fact(
+                segment, DomainFactType.SEGMENT_PROTECTION_CHANGED, FactRole.DIRECT,
+                ProtectionChanged(segment.protection_override, override),
+            ),
+        ))
+
     def add_segment(
         self,
         title: str,
         *,
         estimated_minutes: int | None = None,
         work_type_id: UUID | None = None,
+        protection_override: ProtectionLevel | None = None,
         position: int | None = None,
         segment_id: UUID | None = None,
     ) -> MutationResult[TaskAggregate]:
@@ -282,6 +316,7 @@ class TaskAggregate:
             position=position,
             work_type_id=work_type_id,
             estimated_minutes=estimated_minutes,
+            protection_override=protection_override,
             id=segment_id or uuid4(),
         )
         aggregate = TaskAggregate(self.task, (*self.segments, segment))
@@ -594,8 +629,20 @@ class TaskAggregate:
     def effective_segment_protection(
         self, segment_id: UUID
     ) -> ProtectionLevel:
-        self._segment(segment_id)
-        return self.task.protection
+        segment = self._segment(segment_id)
+        # Child overrides may increase protection; they cannot silently weaken
+        # a protected parent commitment.
+        strength = {
+            ProtectionLevel.FLEXIBLE: 0,
+            ProtectionLevel.REPLANNABLE: 1,
+            ProtectionLevel.PROTECTED: 2,
+        }
+        override = segment.protection_override
+        return (
+            override if override is not None
+            and strength[override] > strength[self.task.protection]
+            else self.task.protection
+        )
 
     def _task_fact(self, event_type, role, payload) -> DomainFact:
         return DomainFact(

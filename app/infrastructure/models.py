@@ -118,6 +118,10 @@ class TaskSegmentRecord(Base):
         ),
         CheckConstraint("position >= 0", name="ck_task_segments_position"),
         CheckConstraint(
+            "protection_override IS NULL OR protection_override IN ('PROTECTED','REPLANNABLE','FLEXIBLE')",
+            name="ck_task_segments_protection_override",
+        ),
+        CheckConstraint(
             "estimated_minutes IS NULL OR estimated_minutes > 0",
             name="ck_task_segments_estimated_minutes",
         ),
@@ -139,6 +143,7 @@ class TaskSegmentRecord(Base):
         nullable=True,
     )
     estimated_minutes: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    protection_override: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class AvailabilityBlockRecord(Base):

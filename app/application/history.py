@@ -10,6 +10,7 @@ from app.domain import (
     DomainFact,
     EstimateChanged,
     FactRole,
+    ProtectionChanged,
     SegmentPosition,
     SegmentMoved,
     SegmentStatusChanged,
@@ -83,6 +84,11 @@ def serialize_fact_payload(fact: DomainFact) -> dict[str, object | None]:
         return {
             "before": str(payload.before) if payload.before else None,
             "after": str(payload.after) if payload.after else None,
+        }
+    if isinstance(payload, ProtectionChanged):
+        return {
+            "before": payload.before.value if payload.before else None,
+            "after": payload.after.value if payload.after else None,
         }
     if isinstance(payload, SegmentPosition):
         return {"position": payload.position}
