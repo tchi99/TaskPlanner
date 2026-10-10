@@ -65,6 +65,52 @@ class SqlTaskRepository:
         self._session.flush()
         return task
 
+    def save_aggregate(self, aggregate: TaskAggregate) -> TaskAggregate:
+        """Persist a whole Task aggregate without destructive ORM cascades.
+
+        Stage existing rows at unused positions before their final placement:
+        SQLite enforces UNIQUE(task_id, position) on every UPDATE, including
+        ordinary two-row swaps.
+        """
+        self.save(aggregate.task)
+        existing = {
+            record.id: record for record in self._session.scalars(
+                select(TaskSegmentRecord).where(
+                    TaskSegmentRecord.task_id == str(aggregate.task.id)
+                )
+            ).all()
+        }
+        target = {str(segment.id): segment for segment in aggregate.segments}
+        for key, record in existing.items():
+            if key not in target:
+                self._session.delete(record)
+        self._session.flush()
+
+        staging = max(
+            [record.position for record in existing.values()]
+            + [segment.position for segment in aggregate.segments]
+            + [-1]
+        ) + 1
+        for index, (key, record) in enumerate(existing.items()):
+            if key in target:
+                record.position = staging + index
+        self._session.flush()
+
+        for segment in aggregate.segments:
+            record = existing.get(str(segment.id))
+            if record is None:
+                self._session.add(self._segment_record(segment))
+                continue
+            record.title = segment.title
+            record.status = segment.status.value
+            record.position = segment.position
+            record.estimated_minutes = segment.estimated_minutes
+            record.work_type_id = (
+                str(segment.work_type_id) if segment.work_type_id else None
+            )
+        self._session.flush()
+        return aggregate
+
     def list_all(self) -> list[Task]:
         records = self._session.scalars(
             select(TaskRecord).order_by(TaskRecord.created_at.desc(), TaskRecord.id.desc())
