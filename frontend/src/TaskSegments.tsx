@@ -95,7 +95,7 @@ export function TaskSegments({
     return () => { active = false; };
   }, [taskId]);
 
-  async function mutate(path: string, method: string, body?: object) {
+  async function mutate(path: string, method: string, body?: object): Promise<boolean> {
     setBusy(true);
     setError("");
     try {
@@ -106,8 +106,10 @@ export function TaskSegments({
       });
       setDetail(updated);
       await onChanged();
+      return true;
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Échec de l'opération.");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -116,14 +118,15 @@ export function TaskSegments({
   async function add(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!newTitle.trim()) return;
-    await mutate("/segments", "POST", {
+    if (await mutate("/segments", "POST", {
       title: newTitle.trim(),
       estimated_minutes: newMinutes ? Number(newMinutes) : null,
       work_type_id: newType || null,
-    });
-    // A failed request leaves the form values available for correction.
-    // The detail refetch is not needed: the mutation returns the new projection.
-    // Keep text only if an error occurred.
+    })) {
+      setNewTitle("");
+      setNewMinutes("");
+      setNewType("");
+    }
   }
 
   function beginEdit(segment: Segment) {
@@ -136,12 +139,11 @@ export function TaskSegments({
   async function edit(event: FormEvent<HTMLFormElement>, segment: Segment) {
     event.preventDefault();
     if (!editTitle.trim()) return;
-    await mutate(`/segments/${segment.id}`, "PATCH", {
+    if (await mutate(`/segments/${segment.id}`, "PATCH", {
       title: editTitle.trim(),
       estimated_minutes: editMinutes ? Number(editMinutes) : null,
       work_type_id: editType || null,
-    });
-    // The edit panel stays visible so a rejected edit can be corrected.
+    })) setEditing(null);
   }
 
   function reorder(index: number, offset: number) {

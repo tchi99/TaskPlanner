@@ -196,6 +196,8 @@ class SegmentResponse(BaseModel):
 
 
 class TaskDetailResponse(TaskResponse):
+    effective_work_type_id: UUID | None
+    work_type_origin: str
     segments: list[SegmentResponse]
     next_action: NextActionResponse | None
     effective_estimate: EstimateResponse
@@ -244,6 +246,8 @@ class TaskDetailResponse(TaskResponse):
             task_actions.append("REOPEN_TASK")
         return cls(
             **TaskResponse.from_domain(task).model_dump(),
+            effective_work_type_id=aggregate.effective_task_work_type().work_type_id,
+            work_type_origin=aggregate.effective_task_work_type().origin.value,
             segments=entries,
             next_action=(NextActionResponse(
                 action_type=action.action_type.value,
