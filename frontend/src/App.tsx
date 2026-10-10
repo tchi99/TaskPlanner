@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import "./app.css";
 import { TaskSegments } from "./TaskSegments";
 import { WeeklyCapacity } from "./WeeklyCapacity";
+import { MorningReview } from "./MorningReview";
 
 type Task = {
   id: string;
@@ -244,6 +245,7 @@ export function App() {
       {error && <p className="error" role="alert">{error} <button type="button" onClick={() => { setError(""); void reload().catch(() => setError("Échec du rechargement.")); }}>Réessayer</button></p>}
       {loading ? <p>Chargement…</p> : (
         <>
+          <MorningReview tasks={tasks} />
           <section className="inbox">
             <div className="sectionHeading"><h2>Inbox — à clarifier</h2><span>{inbox.length}</span></div>
             {inbox.length === 0 ? <p className="empty">Rien à clarifier pour l'instant.</p> : (
