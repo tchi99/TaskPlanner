@@ -8,6 +8,13 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 
+try:
+    from fastapi.routing import iter_route_contexts
+except ImportError:
+    # Before FastAPI 0.137.2, include_router flattened routes into app.routes.
+    def iter_route_contexts(routes):
+        return routes
+
 from app.config import Settings
 from app.main import app
 from app.security import JwtVerifier
@@ -70,7 +77,7 @@ def make_token(key, **changes):
 def test_health_is_public_but_all_other_registered_routes_are_private(secure_client):
     client, _, _ = secure_client
     assert client.get("/api/health").status_code == 200
-    paths = {route.path for route in app.routes if route.path != "/api/health"}
+    paths = {route.path for route in iter_route_contexts(app.routes) if route.path != "/api/health"}
     assert any(path.startswith("/api/behavior") for path in paths)
     assert any(path.startswith("/api/work-sessions") for path in paths)
     assert any(path.startswith("/api/capacity") for path in paths)
