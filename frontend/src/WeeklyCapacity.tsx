@@ -27,6 +27,22 @@ type Evaluation = {
   by_work_type: Bucket[];
 };
 type Week = { blocks: AvailabilityBlock[]; capacity: Evaluation };
+type ProposalOption = {
+  id: string;
+  kind: "KEEP" | "DEFER" | "REVIEW_SCOPE" | "CONSIDER_DELEGATION" | "CLARIFY_ESTIMATES";
+  label: string;
+  rationale: string;
+  consequences: string[];
+  capacity: Evaluation | null;
+  requires_confirmation: boolean;
+};
+type Proposal = {
+  id: string;
+  state: "PROPOSED";
+  facts: string[];
+  baseline: Evaluation;
+  options: ProposalOption[];
+};
 
 function localDate(day: Date): string {
   return [
@@ -79,6 +95,7 @@ export function WeeklyCapacity({
   const [data, setData] = useState<Week | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
+  const [proposal, setProposal] = useState<Proposal | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -93,7 +110,7 @@ export function WeeklyCapacity({
     let active = true;
     setLoading(true);
     setError("");
-    setEvaluation(null);
+    setEvaluation(null); setProposal(null);
     request<Week>(`/api/capacity/weeks/${weekStart}`)
       .then((week) => { if (active) setData(week); })
       .catch((err: unknown) => {
@@ -103,7 +120,7 @@ export function WeeklyCapacity({
     return () => { active = false; };
   }, [weekStart, reloadKey]);
 
-  useEffect(() => { setEvaluation(null); }, [tasks]);
+  useEffect(() => { setEvaluation(null); setProposal(null); }, [tasks]);
 
   function changeWeek(value: string) {
     if (!value) return;
@@ -112,7 +129,7 @@ export function WeeklyCapacity({
     setStart(week + "T09:00");
     setEnd(week + "T10:00");
     setSelected([]);
-    setEvaluation(null);
+    setEvaluation(null); setProposal(null);
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -149,7 +166,7 @@ export function WeeklyCapacity({
   }
 
   async function evaluate() {
-    setBusy(true); setError(""); setEvaluation(null);
+    setBusy(true); setError(""); setEvaluation(null); setProposal(null);
     try {
       const ids = selected.filter((id) => eligible.some((task) => task.id === id));
       setEvaluation(await request<Evaluation>(`/api/capacity/weeks/${weekStart}/evaluate`, {
@@ -162,11 +179,25 @@ export function WeeklyCapacity({
     }
   }
 
+  async function propose() {
+    setBusy(true); setError(""); setProposal(null);
+    try {
+      const ids = selected.filter((id) => eligible.some((task) => task.id === id));
+      setProposal(await request<Proposal>("/api/capacity/weeks/" + weekStart + "/proposals", {
+        method: "POST", headers, body: JSON.stringify({ task_ids: ids }),
+      }));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Proposition impossible.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function toggle(id: string, checked: boolean) {
     setSelected((previous) =>
       checked ? [...previous, id] : previous.filter((current) => current !== id)
     );
-    setEvaluation(null);
+    setEvaluation(null); setProposal(null);
   }
 
   return (
@@ -217,6 +248,35 @@ export function WeeklyCapacity({
             </fieldset>
           )}
           <button type="button" disabled={busy} onClick={() => void evaluate()}>Vérifier la faisabilité</button>
+          {" "}
+          <button type="button" disabled={busy} onClick={() => void propose()}>Proposer des options</button>
+          {proposal && (
+            <div className="capacityResult" aria-live="polite">
+              <h3>Options de plan — simulation seulement</h3>
+              <p><strong>{statusText[proposal.baseline.status]}</strong> : {proposal.baseline.known_demand_minutes}/{proposal.baseline.available_minutes} min connus.
+                {proposal.baseline.unestimated_units > 0 && " Estimations inconnues : " + proposal.baseline.unestimated_units + "."}
+              </p>
+              <ul>
+                {proposal.options.map((option) => (
+                  <li key={option.id}>
+                    <strong>{option.label}</strong>
+                    <p>{option.rationale}</p>
+                    {option.capacity ? (
+                      <p>Simulation : {statusText[option.capacity.status]} —
+                        {" "}{option.capacity.known_demand_minutes}/{option.capacity.available_minutes} min connus,
+                        {" "}{option.capacity.unestimated_units} unité(s) non estimée(s).
+                      </p>
+                    ) : (
+                      <p className="muted">Piste qualitative : effet sur la capacité non chiffré.</p>
+                    )}
+                    <ul>{option.consequences.map((item, index) => <li key={index}>{item}</li>)}</ul>
+                    {option.requires_confirmation && <p className="muted">Un arbitrage explicite serait nécessaire avant toute application.</p>}
+                  </li>
+                ))}
+              </ul>
+              <p className="muted">Aucune option n'est acceptée ni appliquée. Aucune date ni réservation n'est créée.</p>
+            </div>
+          )}
           {evaluation && (
             <div className="capacityResult" aria-live="polite">
               <strong>{statusText[evaluation.status]}</strong>
