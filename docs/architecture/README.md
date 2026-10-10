@@ -14,6 +14,10 @@ Ce dossier contient les Architecture Decision Records (ADR) de TaskPlanner.
 
 - [ADR-0015](./ADR-0015-start-assistance.md) — amorçage non autoritaire et point de reprise;
 
+## ADR proposés
+
+- [ADR-0018](./ADR-0018-production-deployment.md) — hébergement Render/Supabase, identité et sécurité pour TP-080 (à valider avant le déploiement);
+
 ## Convention
 
 Chaque ADR doit contenir au minimum :
