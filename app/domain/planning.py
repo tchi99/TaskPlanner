@@ -42,7 +42,7 @@ class PlanProposalPreview:
     options: tuple[PlanOptionPreview, ...]
 
 
-def _effective_protection(aggregate: TaskAggregate) -> ProtectionLevel:
+def effective_task_protection(aggregate: TaskAggregate) -> ProtectionLevel:
     """Whole-task deferral cannot hide any protected open segment."""
     active = (
         segment for segment in aggregate.segments
@@ -98,7 +98,7 @@ def propose_plan(
     )
 
     for aggregate in ordered:
-        protection = _effective_protection(aggregate)
+        protection = effective_task_protection(aggregate)
         if protection is ProtectionLevel.PROTECTED:
             continue
         remaining = [a for a in ordered if a.task.id != aggregate.task.id]

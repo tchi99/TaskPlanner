@@ -235,3 +235,10 @@ select,
 .capacitySelection label { display: flex; align-items: center; gap: 10px; font-weight: 400; }
 .capacitySelection input { width: auto; }
 .capacityResult { margin-top: 16px; border-top: 1px solid #e2e8f0; padding-top: 16px; }
+
+.morningPanel .sectionHeading button { padding: 9px 14px; }
+.morningPanel input[type="date"] { max-width: 230px; padding: 10px; border: 1px solid #cbd5e1; border-radius: 10px; }
+.morningItems li { padding: 10px 0; }
+.morningItems li .muted { display: inline-block; margin-left: 8px; font-size: .82rem; }
+.morningDecisions { list-style: disc; padding-left: 22px; }
+.morningDecisions li { padding: 6px 0; }
