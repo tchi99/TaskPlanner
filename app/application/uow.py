@@ -33,6 +33,11 @@ class HistoryRepository(Protocol):
     def append_many(self, events: Sequence[HistoryEvent]) -> None: ...
 
 
+class HistoryReadRepository(Protocol):
+    """Read-only event projection; separate from the append-only event sink."""
+    def list_all(self, before: datetime | None = None) -> Sequence[HistoryEvent]: ...
+
+
 class ProjectRepository(Protocol):
     def add(self, project: Project) -> Project: ...
     def get(self, project_id: UUID) -> Project | None: ...
@@ -94,6 +99,7 @@ class UnitOfWork(Protocol):
     resume_points: ResumePointRepository
     work_sessions: WorkSessionRepository
     history: HistoryRepository
+    history_read: HistoryReadRepository
     projects: ProjectRepository
     work_types: WorkTypeRepository
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { BehaviorPanel } from "./BehaviorPanel";
 
 type WeeklyAction = "RECIRCULATE" | "POSTPONE" | "REVIEW_LATER" | "DELEGATE" | "ABANDON";
 type SubjectKind = "TASK" | "PROJECT";
@@ -228,6 +229,7 @@ export function WeeklyReview() {
           <p className="muted">Photographie des faits actuels pour la semaine choisie, non un état historique.
             Les choix sont consignés localement, sans modifier les tâches, les projets ni le calendrier.
             Appliquer les changements réels dans leurs commandes dédiées.</p>
+          <BehaviorPanel refreshKey={week + ":" + version} />
           <h3>Capacité hebdomadaire — simulation de toutes les tâches ouvertes</h3>
           <p>Disponibilité manuelle : {weekly.capacity_if_all_open.available_minutes} min
             ({weekly.manual_block_count} bloc(s)); charge connue : {weekly.capacity_if_all_open.known_demand_minutes} min;

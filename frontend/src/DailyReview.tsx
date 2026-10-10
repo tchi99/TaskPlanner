@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { BehaviorPanel } from "./BehaviorPanel";
 
 type Task = {
   id: string;
@@ -150,6 +151,7 @@ export function DailyReview({ tasks }: { tasks: Task[] }) {
               daily.state === "OPEN" ? "Choix du jour enregistré localement." : "Journée fermée explicitement."}
             {" "}Aucune tâche ni aucun événement de calendrier n'est modifié par cette revue.
           </p>
+          <BehaviorPanel refreshKey={day + ":" + refresh} />
           <h3>Éléments à remettre en évidence ({daily.resurfaced.length})</h3>
           {daily.resurfaced.length ? (
             <ul className="dailyList">
