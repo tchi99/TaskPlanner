@@ -20,7 +20,7 @@ from app.infrastructure.db import Base
 
 
 class UTCDateTime(TypeDecorator[datetime]):
-    impl = DateTime
+    impl = DateTime(timezone=True)
     cache_ok = True
 
     def process_bind_param(self, value: datetime | None, dialect):
@@ -305,7 +305,8 @@ class WorkSessionRecord(Base):
     __table_args__ = (
         Index("ix_work_sessions_task_started", "task_id", "started_at"),
         Index("uq_work_sessions_single_active", "status", unique=True,
-              sqlite_where=text("status = 'ACTIVE'")),
+              sqlite_where=text("status = 'ACTIVE'"),
+              postgresql_where=text("status = 'ACTIVE'")),
         CheckConstraint("status IN ('ACTIVE','PAUSED','FINISHED')",
                         name="ck_work_sessions_status"),
         CheckConstraint("active_seconds >= 0 AND interruptions >= 0 AND revision > 0",
