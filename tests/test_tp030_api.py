@@ -49,6 +49,7 @@ def test_weekly_options_api_is_side_effect_free_and_exposes_consequences(runtime
         }).status_code == 200
         assert client.patch(f"/api/tasks/{task_id}/protection", json={
             "protection": protection,
+            "confirm_downgrade": protection == "FLEXIBLE",
         }).status_code == 200
         ids.append(task_id)
 
