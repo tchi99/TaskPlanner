@@ -9,6 +9,7 @@ from app.application.history import HistoryEvent
 from app.domain import Project, Task, TaskAggregate, WorkType
 from app.domain.capacity import AvailabilityBlock
 from app.domain.time_blocks import ConfirmedTimeBlock
+from app.domain.daily import DailyReview
 
 
 class TaskRepository(Protocol):
@@ -52,9 +53,16 @@ class ConfirmedTimeBlockRepository(Protocol):
     def add(self, block: ConfirmedTimeBlock) -> None: ...
 
 
+class DailyReviewRepository(Protocol):
+    def get(self, day: date, timezone_name: str) -> DailyReview | None: ...
+    def list_before(self, day: date, timezone_name: str) -> Sequence[DailyReview]: ...
+    def save(self, review: DailyReview) -> None: ...
+
+
 class UnitOfWork(Protocol):
     availability: AvailabilityRepository
     time_blocks: ConfirmedTimeBlockRepository
+    daily_reviews: DailyReviewRepository
     tasks: TaskRepository
     history: HistoryRepository
     projects: ProjectRepository

@@ -7,6 +7,7 @@ from app.server.arbitration import router as arbitration_router
 from app.server.protection import router as protection_router
 from app.server.planning import router as planning_router
 from app.server.morning import router as morning_router
+from app.server.daily import router as daily_router
 
 from app.server.tasks import router as tasks_router
 from app.server.projects import projects_router, work_types_router
@@ -25,6 +26,7 @@ app.include_router(arbitration_router)
 app.include_router(protection_router)
 app.include_router(planning_router)
 app.include_router(morning_router)
+app.include_router(daily_router)
 
 
 @app.get("/api/health")
