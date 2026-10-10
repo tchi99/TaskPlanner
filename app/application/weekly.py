@@ -62,7 +62,7 @@ def read_weekly(uow: UnitOfWork, week_start: date, timezone_name: str) -> Weekly
     zone = ZoneInfo(timezone_name)
     # This is a current-state review, NOT a reconstruction of a past task state.
     end = datetime.combine(week_start + timedelta(days=7), time.min, zone)
-    as_of = end.astimezone(timezone.utc)
+    as_of = min(end.astimezone(timezone.utc), datetime.now(timezone.utc))
     quiet_before = as_of - timedelta(days=14)
 
     with uow:
