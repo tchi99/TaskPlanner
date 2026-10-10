@@ -49,6 +49,11 @@ def delete_block(uow: UnitOfWork, week_start: date, block_id: UUID) -> None:
         block = uow.availability.get(block_id)
         if block is None or block.week_start != week_start:
             raise LookupError("availability block not found")
+        if any(
+            existing.starts_at < block.ends_at and existing.ends_at > block.starts_at
+            for existing in uow.time_blocks.list_week(week_start)
+        ):
+            raise ValueError("availability is used by confirmed time blocks")
         uow.availability.delete(block_id)
         uow.commit()
 

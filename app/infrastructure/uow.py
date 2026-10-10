@@ -10,6 +10,7 @@ from app.infrastructure.reference_repositories import (
     SqlWorkTypeRepository,
 )
 from app.infrastructure.task_repository import SqlTaskRepository
+from app.infrastructure.time_block_repository import SqlConfirmedTimeBlockRepository
 
 
 class SqlAlchemyUnitOfWork:
@@ -20,6 +21,7 @@ class SqlAlchemyUnitOfWork:
     def __enter__(self) -> "SqlAlchemyUnitOfWork":
         self.session = self._session_factory()
         self.availability = SqlAvailabilityRepository(self.session)
+        self.time_blocks = SqlConfirmedTimeBlockRepository(self.session)
         self.tasks = SqlTaskRepository(self.session)
         self.history = SqlHistoryRepository(self.session)
         self.projects = SqlProjectRepository(self.session)

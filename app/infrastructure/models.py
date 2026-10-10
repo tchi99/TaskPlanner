@@ -161,6 +161,30 @@ class AvailabilityBlockRecord(Base):
     )
 
 
+class ConfirmedTimeBlockRecord(Base):
+    """Explicitly accepted local reservations, never events in Google Calendar."""
+    __tablename__ = "confirmed_time_blocks"
+    __table_args__ = (
+        Index("ix_confirmed_time_blocks_week", "week_start"),
+        UniqueConstraint("task_id", "segment_id", "starts_at",
+                         name="uq_confirmed_time_block_unit_start"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    week_start: Mapped[date] = mapped_column(Date(), nullable=False)
+    task_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tasks.id", ondelete="RESTRICT"), nullable=False,
+    )
+    segment_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("task_segments.id", ondelete="RESTRICT"), nullable=True,
+    )
+    work_type_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("work_types.id", ondelete="RESTRICT"), nullable=True,
+    )
+    starts_at: Mapped[str] = mapped_column(String(40), nullable=False)
+    ends_at: Mapped[str] = mapped_column(String(40), nullable=False)
+
+
 class HistoryEventRecord(Base):
     __tablename__ = "history_events"
     __table_args__ = (

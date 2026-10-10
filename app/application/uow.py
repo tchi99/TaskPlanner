@@ -8,6 +8,7 @@ from uuid import UUID
 from app.application.history import HistoryEvent
 from app.domain import Project, Task, TaskAggregate, WorkType
 from app.domain.capacity import AvailabilityBlock
+from app.domain.time_blocks import ConfirmedTimeBlock
 
 
 class TaskRepository(Protocol):
@@ -46,8 +47,14 @@ class AvailabilityRepository(Protocol):
     def delete(self, block_id: UUID) -> None: ...
 
 
+class ConfirmedTimeBlockRepository(Protocol):
+    def list_week(self, week_start: date) -> Sequence[ConfirmedTimeBlock]: ...
+    def add(self, block: ConfirmedTimeBlock) -> None: ...
+
+
 class UnitOfWork(Protocol):
     availability: AvailabilityRepository
+    time_blocks: ConfirmedTimeBlockRepository
     tasks: TaskRepository
     history: HistoryRepository
     projects: ProjectRepository
