@@ -27,6 +27,26 @@ type Evaluation = {
   by_work_type: Bucket[];
 };
 type Week = { blocks: AvailabilityBlock[]; capacity: Evaluation };
+type CalendarWeek = {
+  week_start: string;
+  timezone_name: string;
+  manual_available_minutes: number;
+  occupied_minutes: number;
+  remaining_minutes: number;
+  by_work_type: {
+    work_type_id: string | null;
+    manual_available_minutes: number;
+    occupied_minutes: number;
+    remaining_minutes: number;
+  }[];
+  commitments: {
+    calendar_id: string;
+    event_id: string;
+    title: string;
+    starts_at: string;
+    ends_at: string;
+  }[];
+};
 type ProposalOption = {
   id: string;
   kind: "KEEP" | "DEFER" | "REVIEW_SCOPE" | "CONSIDER_DELEGATION" | "CLARIFY_ESTIMATES";
@@ -96,6 +116,9 @@ export function WeeklyCapacity({
   const [selected, setSelected] = useState<string[]>([]);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [proposal, setProposal] = useState<Proposal | null>(null);
+  const [calendar, setCalendar] = useState<CalendarWeek | null>(null);
+  const [calendarBusy, setCalendarBusy] = useState(false);
+  const [calendarError, setCalendarError] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -110,7 +133,7 @@ export function WeeklyCapacity({
     let active = true;
     setLoading(true);
     setError("");
-    setEvaluation(null); setProposal(null);
+    setEvaluation(null); setProposal(null); setCalendar(null); setCalendarError("");
     request<Week>(`/api/capacity/weeks/${weekStart}`)
       .then((week) => { if (active) setData(week); })
       .catch((err: unknown) => {
@@ -129,7 +152,7 @@ export function WeeklyCapacity({
     setStart(week + "T09:00");
     setEnd(week + "T10:00");
     setSelected([]);
-    setEvaluation(null); setProposal(null);
+    setEvaluation(null); setProposal(null); setCalendar(null); setCalendarError("");
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -193,6 +216,21 @@ export function WeeklyCapacity({
     }
   }
 
+  async function loadCalendar() {
+    setCalendarBusy(true); setCalendarError(""); setCalendar(null);
+    try {
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      const result = await request<CalendarWeek>(
+        "/api/capacity/weeks/" + weekStart + "/calendar?timezone_name=" + encodeURIComponent(timezone)
+      );
+      setCalendar(result);
+    } catch (err: unknown) {
+      setCalendarError(err instanceof Error ? err.message : "Lecture du calendrier impossible.");
+    } finally {
+      setCalendarBusy(false);
+    }
+  }
+
   function toggle(id: string, checked: boolean) {
     setSelected((previous) =>
       checked ? [...previous, id] : previous.filter((current) => current !== id)
@@ -234,6 +272,37 @@ export function WeeklyCapacity({
             </div>
             <button disabled={busy} type="submit">Ajouter un bloc disponible</button>
           </form>
+          <h3>Contexte Google Calendar (lecture seule)</h3>
+          <p className="muted">Les engagements occupés réduisent uniquement les blocs manuels qui les croisent.
+            Les catégories de temps ne deviennent pas des tâches. Cette lecture n'altère ni les blocs ni les simulations existantes.</p>
+          <button type="button" disabled={calendarBusy || busy}
+            onClick={() => void loadCalendar()}>
+            {calendarBusy ? "Lecture du calendrier…" : "Lire Google Calendar"}
+          </button>
+          {calendarError && <p className="error" role="alert">{calendarError}</p>}
+          {calendar?.week_start === weekStart && (
+            <div className="capacityResult" aria-live="polite">
+              <strong>{calendar.remaining_minutes} min disponibles après engagements Google Calendar</strong>
+              <p>{calendar.manual_available_minutes} min de blocs manuels − {calendar.occupied_minutes} min occupées
+                à l'intérieur de ces blocs.</p>
+              {calendar.by_work_type.map((bucket) => (
+                <p key={bucket.work_type_id ?? "unclassified"}>
+                  {labelFor(bucket.work_type_id)} : {bucket.remaining_minutes} min restantes
+                  {" "}({bucket.occupied_minutes} min occupées sur {bucket.manual_available_minutes} min manuelles)
+                </p>
+              ))}
+              {calendar.commitments.length === 0
+                ? <p className="muted">Aucun engagement occupé trouvé pour cette semaine.</p>
+                : <ul className="capacityBlocks">{calendar.commitments.map((event) => (
+                  <li key={event.calendar_id + ":" + event.event_id}>
+                    <span>{event.title} · {new Date(event.starts_at).toLocaleString()} –
+                      {" "}{new Date(event.ends_at).toLocaleString()}</span>
+                  </li>
+                ))}</ul>}
+              <p className="muted">Aucun événement n'est créé ou modifié. Les vérifications et propositions
+                ci-dessous utilisent encore la capacité manuelle brute; elles n'appliquent pas cet ajustement.</p>
+            </div>
+          )}
           <h3>Vérifier une sélection pour cette semaine</h3>
           {eligible.length === 0 ? <p className="empty">Aucune tâche clarifiée ouverte à évaluer.</p> : (
             <fieldset className="capacitySelection">

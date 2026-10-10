@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from app.server.capacity import router as capacity_router
+from app.server.calendar import router as calendar_router
 from app.server.protection import router as protection_router
 from app.server.planning import router as planning_router
 from app.server.morning import router as morning_router
@@ -14,6 +15,7 @@ app.include_router(segments_router)
 app.include_router(projects_router)
 app.include_router(work_types_router)
 app.include_router(capacity_router)
+app.include_router(calendar_router)
 app.include_router(protection_router)
 app.include_router(planning_router)
 app.include_router(morning_router)
