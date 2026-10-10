@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     # TP-050: optional server-side AI suggestions.
     openai_api_key: SecretStr | None = None
     openai_decomposition_model: str = "gpt-4o-mini"
+    openai_arbitration_model: str = "gpt-4o-mini"
 
 
 @lru_cache

@@ -64,6 +64,16 @@ type Proposal = {
   baseline: Evaluation;
   options: ProposalOption[];
 };
+type Arbitration = {
+  state: "PROPOSED";
+  source: "AI_SUGGESTION";
+  proposal: Proposal;
+  explanations: {
+    option_index: number;
+    explanation: string;
+    question: string | null;
+  }[];
+};
 
 function localDate(day: Date): string {
   return [
@@ -117,6 +127,7 @@ export function WeeklyCapacity({
   const [selected, setSelected] = useState<string[]>([]);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [proposal, setProposal] = useState<Proposal | null>(null);
+  const [arbitration, setArbitration] = useState<Arbitration | null>(null);
   const [calendar, setCalendar] = useState<CalendarWeek | null>(null);
   const [calendarBusy, setCalendarBusy] = useState(false);
   const [calendarError, setCalendarError] = useState("");
@@ -134,7 +145,7 @@ export function WeeklyCapacity({
     let active = true;
     setLoading(true);
     setError("");
-    setEvaluation(null); setProposal(null); setCalendar(null); setCalendarError("");
+    setEvaluation(null); setProposal(null); setArbitration(null); setCalendar(null); setCalendarError("");
     request<Week>(`/api/capacity/weeks/${weekStart}`)
       .then((week) => { if (active) setData(week); })
       .catch((err: unknown) => {
@@ -144,7 +155,7 @@ export function WeeklyCapacity({
     return () => { active = false; };
   }, [weekStart, reloadKey]);
 
-  useEffect(() => { setEvaluation(null); setProposal(null); }, [tasks]);
+  useEffect(() => { setEvaluation(null); setProposal(null); setArbitration(null); }, [tasks]);
 
   function changeWeek(value: string) {
     if (!value) return;
@@ -153,7 +164,7 @@ export function WeeklyCapacity({
     setStart(week + "T09:00");
     setEnd(week + "T10:00");
     setSelected([]);
-    setEvaluation(null); setProposal(null); setCalendar(null); setCalendarError("");
+    setEvaluation(null); setProposal(null); setArbitration(null); setCalendar(null); setCalendarError("");
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -190,7 +201,7 @@ export function WeeklyCapacity({
   }
 
   async function evaluate() {
-    setBusy(true); setError(""); setEvaluation(null); setProposal(null);
+    setBusy(true); setError(""); setEvaluation(null); setProposal(null); setArbitration(null);
     try {
       const ids = selected.filter((id) => eligible.some((task) => task.id === id));
       setEvaluation(await request<Evaluation>(`/api/capacity/weeks/${weekStart}/evaluate`, {
@@ -204,7 +215,7 @@ export function WeeklyCapacity({
   }
 
   async function propose() {
-    setBusy(true); setError(""); setProposal(null);
+    setBusy(true); setError(""); setProposal(null); setArbitration(null);
     try {
       const ids = selected.filter((id) => eligible.some((task) => task.id === id));
       setProposal(await request<Proposal>("/api/capacity/weeks/" + weekStart + "/proposals", {
@@ -212,6 +223,25 @@ export function WeeklyCapacity({
       }));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Proposition impossible.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function assistArbitration() {
+    setBusy(true); setError(""); setArbitration(null);
+    try {
+      const ids = selected.filter((id) => eligible.some((task) => task.id === id));
+      const answer = await request<Arbitration>(
+        "/api/capacity/weeks/" + weekStart + "/arbitration-suggestions", {
+          method: "POST", headers, body: JSON.stringify({ task_ids: ids }),
+        }
+      );
+      // The backend recomputes this snapshot; never attach advice to older options.
+      setProposal(answer.proposal);
+      setArbitration(answer);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Arbitrage assisté indisponible.");
     } finally {
       setBusy(false);
     }
@@ -236,7 +266,7 @@ export function WeeklyCapacity({
     setSelected((previous) =>
       checked ? [...previous, id] : previous.filter((current) => current !== id)
     );
-    setEvaluation(null); setProposal(null);
+    setEvaluation(null); setProposal(null); setArbitration(null);
   }
 
   return (
@@ -310,7 +340,7 @@ export function WeeklyCapacity({
               <legend>Tâches candidates (aucune affectation automatique)</legend>
               {eligible.map((task) => (
                 <label key={task.id}>
-                  <input type="checkbox" checked={selected.includes(task.id)}
+                  <input type="checkbox" disabled={busy} checked={selected.includes(task.id)}
                     onChange={(event) => toggle(task.id, event.target.checked)} />
                   {task.title}
                 </label>
@@ -320,14 +350,23 @@ export function WeeklyCapacity({
           <button type="button" disabled={busy} onClick={() => void evaluate()}>Vérifier la faisabilité</button>
           {" "}
           <button type="button" disabled={busy} onClick={() => void propose()}>Proposer des options</button>
+          {" "}
+          <button type="button" disabled={busy || !proposal}
+            onClick={() => void assistArbitration()}>
+            {busy ? "Traitement…" : "Expliquer les options avec l'IA"}
+          </button>
           {proposal && (
             <div className="capacityResult" aria-live="polite">
               <h3>Options de plan — simulation seulement</h3>
+              <p className="muted">L'arbitrage assisté est facultatif. Sur demande, les résumés des scénarios,
+                chiffres de capacité et conséquences affichées sont transmis à OpenAI; aucun
+                événement de calendrier ni note de tâche n'est transmis. L'IA n'établit pas
+                les priorités et ne prend aucune décision à votre place.</p>
               <p><strong>{statusText[proposal.baseline.status]}</strong> : {proposal.baseline.known_demand_minutes}/{proposal.baseline.available_minutes} min connus.
                 {proposal.baseline.unestimated_units > 0 && " Estimations inconnues : " + proposal.baseline.unestimated_units + "."}
               </p>
               <ul>
-                {proposal.options.map((option) => (
+                {proposal.options.map((option, index) => (
                   <li key={option.id}>
                     <strong>{option.label}</strong>
                     <p>{option.rationale}</p>
@@ -340,6 +379,14 @@ export function WeeklyCapacity({
                       <p className="muted">Piste qualitative : effet sur la capacité non chiffré.</p>
                     )}
                     <ul>{option.consequences.map((item, index) => <li key={index}>{item}</li>)}</ul>
+                    {arbitration?.explanations.find((item) => item.option_index === index) && (
+                      <div>
+                        <p><strong>Explication IA — suggestion non vérifiée :</strong>{" "}
+                          {arbitration.explanations[index].explanation}</p>
+                        {arbitration.explanations[index].question &&
+                          <p className="muted">À clarifier : {arbitration.explanations[index].question}</p>}
+                      </div>
+                    )}
                     {option.requires_confirmation && <p className="muted">Un arbitrage explicite serait nécessaire avant toute application.</p>}
                   </li>
                 ))}
