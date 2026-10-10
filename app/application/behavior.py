@@ -11,7 +11,7 @@ def read_behavior(uow: UnitOfWork, *, now: datetime | None = None) -> dict:
     at = now or datetime.now(timezone.utc)
     with uow:
         tasks = tuple(uow.tasks.list_all())
-        events = tuple(uow.history.list_all(before=at))
+        events = tuple(uow.history_read.list_all(before=at))
         sessions = tuple(uow.work_sessions.list_all())
         decomposed_ids = {
             task.id for task in tasks
