@@ -14,7 +14,7 @@ Ouvrir PowerShell et exécuter :
 git clone https://github.com/tchi99/TaskPlanner.git
 cd TaskPlanner
 # Si ce fichier existe déjà, ne pas le remplacer.
-Copy-Item docker/.env.example .env
+if (-not (Test-Path .env)) { Copy-Item docker/.env.example .env }
 notepad .env
 ```
 
