@@ -17,7 +17,7 @@ export const workspacePages: {
 ];
 
 function PageIcon({ name }: { name: WorkspacePage }) {
-  let drawing: ReactNode;
+  let drawing: ReactNode = null;
   switch (name) {
     case "today":
       drawing = <><rect x="3" y="3" width="18" height="18" rx="4" /><path d="m7 12 3 3 7-7" /></>;
