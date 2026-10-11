@@ -12,7 +12,7 @@ services:
       - taskplanner_pg_data:/var/lib/postgresql/data
       - ./docker/init/01-create-schema.sql:/docker-entrypoint-initdb.d/01-create-schema.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U taskplanner -d taskplanner_dev"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U taskplanner -d taskplanner_dev"]
       interval: 5s
       timeout: 3s
       retries: 15
