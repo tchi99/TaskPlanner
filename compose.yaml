@@ -1,0 +1,76 @@
+# TP-081: local testing ONLY; never expose local authentication on the LAN.
+name: taskplanner-local
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: taskplanner_dev
+      POSTGRES_USER: taskplanner
+      POSTGRES_PASSWORD: ${TASKPLANNER_DOCKER_DB_PASSWORD:?Copy docker/.env.example to .env and set TASKPLANNER_DOCKER_DB_PASSWORD}
+    volumes:
+      - taskplanner_pg_data:/var/lib/postgresql/data
+      - ./docker/init/01-create-schema.sql:/docker-entrypoint-initdb.d/01-create-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U taskplanner -d taskplanner_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    networks: [taskplanner_internal]
+
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    environment: &backend_environment
+      TASKPLANNER_ENV: test
+      TASKPLANNER_AUTH_MODE: local
+      TASKPLANNER_DATABASE_SCHEMA: taskplanner
+      # Only for isolated local Postgres; TLS remains mandatory outside test mode.
+      TASKPLANNER_DATABASE_URL: postgresql+psycopg://taskplanner:${TASKPLANNER_DOCKER_DB_PASSWORD}@db:5432/taskplanner_dev?sslmode=disable
+      TASKPLANNER_CORS_ORIGINS: http://localhost:5173
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    networks: [taskplanner_internal]
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    environment: *backend_environment
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    expose: ["8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2).read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [taskplanner_internal]
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.dev.Dockerfile
+    environment:
+      VITE_TASKPLANNER_AUTH_MODE: local
+      TASKPLANNER_VITE_API_PROXY_TARGET: http://backend:8000
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173", "--strictPort"]
+    ports:
+      - "127.0.0.1:5173:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [taskplanner_internal]
+
+volumes:
+  taskplanner_pg_data:
+
+networks:
+  taskplanner_internal:
+    driver: bridge
