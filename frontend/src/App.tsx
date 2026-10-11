@@ -1,6 +1,8 @@
 import { apiFetch } from "./auth";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import "./app.css";
+import "./workspace.css";
+import { WorkspaceNav, workspacePages, type WorkspacePage } from "./WorkspaceNav";
 import { TaskSegments } from "./TaskSegments";
 import { WeeklyCapacity } from "./WeeklyCapacity";
 import { MorningReview } from "./MorningReview";
@@ -120,6 +122,9 @@ export function App() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [page, setPage] = useState<WorkspacePage>("today");
+  const [taskFilter, setTaskFilter] = useState<"all" | "active" | "protected" | "completed">("active");
+  const captureRef = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(async () => {
     const [allTasks, allProjects, allTypes] = await Promise.all([
@@ -218,17 +223,69 @@ export function App() {
 
   const inbox = tasks.filter((task) => task.status === "INBOX");
   const clarified = tasks.filter((task) => task.status !== "INBOX");
-  return (
-    <main className="shell">
-      <section className="hero">
-        <p className="eyebrow">TaskPlanner</p>
-        <h1>Capture ce qui te passe par la tête.</h1>
-        <p>Le titre suffit. Tu pourras préciser le projet, le type et l'estimation ensuite.</p>
-      </section>
+  const visibleTasks = clarified.filter((task) => {
+    if (taskFilter === "active") return task.status === "TODO" || task.status === "IN_PROGRESS";
+    if (taskFilter === "protected") return task.protection === "PROTECTED" &&
+      (task.status === "TODO" || task.status === "IN_PROGRESS");
+    if (taskFilter === "completed") return task.status === "DONE";
+    return true;
+  });
+  const ongoingCount = clarified.filter((task) =>
+    task.status === "TODO" || task.status === "IN_PROGRESS").length;
+  const protectedCount = clarified.filter((task) => task.protection === "PROTECTED" &&
+    (task.status === "TODO" || task.status === "IN_PROGRESS")).length;
+  const pageInfo = workspacePages.find((item) => item.id === page)!;
 
-      <form className="capture" onSubmit={submitCapture}>
+  function navigate(nextPage: WorkspacePage) {
+    setPage(nextPage);
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }
+
+  return (
+    <div className="workspaceFrame">
+      <a className="skipToContent" href="#workspace-main">Aller au contenu</a>
+      <WorkspaceNav current={page} onNavigate={navigate} inboxCount={inbox.length} />
+      <div className="workspaceMainRegion">
+        <header className="workspaceHeader">
+          <div className="workspaceHeaderCopy">
+            <p className="workspaceOverline">TABLEAU DE BORD PERSONNEL</p>
+            <h1>{pageInfo.title}</h1>
+            <p>{pageInfo.subtitle}</p>
+          </div>
+          <button className="headerCaptureButton" type="button"
+            onClick={() => captureRef.current?.focus()}>
+            <span aria-hidden="true">＋</span> Nouvelle tâche
+          </button>
+        </header>
+        <main className="shell workspaceContent" id="workspace-main">
+          {page === "today" && (
+            <div className="workspaceStats" aria-label="Situation actuelle">
+              <button type="button" className="statCard" onClick={() => navigate("inbox")}>
+                <span className="statLabel">À clarifier</span>
+                <strong>{inbox.length}</strong>
+                <span className="statHint">Dans la boîte de réception →</span>
+              </button>
+              <button type="button" className="statCard" onClick={() => { setTaskFilter("protected"); navigate("tasks"); }}>
+                <span className="statLabel">Travail protégé</span>
+                <strong>{protectedCount}</strong>
+                <span className="statHint">Tâches ouvertes à protéger →</span>
+              </button>
+              <button type="button" className="statCard" onClick={() => { setTaskFilter("active"); navigate("tasks"); }}>
+                <span className="statLabel">À faire / en cours</span>
+                <strong>{ongoingCount}</strong>
+                <span className="statHint">Voir le travail actif →</span>
+              </button>
+            </div>
+          )}
+
+          <section className="workspaceCapture" aria-label="Capture rapide">
+            <div className="workspaceSectionIntro">
+              <span className="sectionAccent" aria-hidden="true" />
+              <div><h2>Capturer une idée</h2><p>Une ligne suffit. Tu pourras préciser le reste plus tard.</p></div>
+            </div>
+            <form className="capture" onSubmit={submitCapture}>
         <div className="captureRow">
-          <input autoFocus aria-label="Nouvelle tâche" placeholder="Nouvelle tâche…"
+          <input ref={captureRef} id="workspace-quick-capture" aria-label="Nouvelle tâche" placeholder="Nouvelle tâche…"
             value={title} onChange={(e) => setTitle(e.target.value)} />
           <button disabled={saving || !title.trim()} type="submit">
             {saving ? "Ajout…" : "Ajouter"}
@@ -244,14 +301,21 @@ export function App() {
           </div>
         </details>
       </form>
+          </section>
 
-      {error && <p className="error" role="alert">{error} <button type="button" onClick={() => { setError(""); void reload().catch(() => setError("Échec du rechargement.")); }}>Réessayer</button></p>}
-      {loading ? <p>Chargement…</p> : (
-        <>
-          <MorningReview tasks={tasks} />
-          <DailyReview tasks={tasks} />
-          <WeeklyReview />
-          <section className="inbox">
+          {error && <p className="error" role="alert">{error} <button type="button" onClick={() => { setError(""); void reload().catch(() => setError("Échec du rechargement.")); }}>Réessayer</button></p>}
+
+          {loading ? <div className="inbox workspaceLoading" role="status">Chargement de ton espace…</div> : (
+            <>
+              {page === "today" && (
+                <div className="todayGrid">
+                  <MorningReview tasks={tasks} />
+                  <DailyReview tasks={tasks} />
+                </div>
+              )}
+              {page === "inbox" && (
+                <div className="workspacePage">
+                  <section className="inbox">
             <div className="sectionHeading"><h2>Inbox — à clarifier</h2><span>{inbox.length}</span></div>
             {inbox.length === 0 ? <p className="empty">Rien à clarifier pour l'instant.</p> : (
               <ul>{inbox.map((task) => (
@@ -261,28 +325,26 @@ export function App() {
               ))}</ul>
             )}
           </section>
-
-          <section className="inbox">
-            <h2>Projets et types de travail</h2>
-            <div className="detailGrid">
-              <form onSubmit={(e) => createReference(e, "projects", newProject)}>
-                <label>Nouveau projet<input maxLength={500} value={newProject} onChange={(e) => setNewProject(e.target.value)} /></label>
-                <button disabled={saving || !newProject.trim()}>Créer le projet</button>
-              </form>
-              <form onSubmit={(e) => createReference(e, "work-types", newWorkType)}>
-                <label>Nouveau type de travail<input maxLength={200} value={newWorkType} onChange={(e) => setNewWorkType(e.target.value)} /></label>
-                <button disabled={saving || !newWorkType.trim()}>Ajouter le type</button>
-              </form>
-            </div>
-            {workTypes.length > 0 && <p className="muted">Types : {workTypes.map((type) => type.name).join(", ")}</p>}
-          </section>
-
-          <WeeklyCapacity tasks={tasks} workTypes={workTypes} />
-
-          <section className="inbox">
+                </div>
+              )}
+              {page === "tasks" && (
+                <div className="workspacePage">
+                  <div className="workspaceToolbar">
+                    <label htmlFor="tasks-view-filter">Afficher
+                      <select id="tasks-view-filter" value={taskFilter}
+                        onChange={(event) => setTaskFilter(event.target.value as typeof taskFilter)}>
+                        <option value="active">À faire / en cours</option>
+                        <option value="protected">Protégées</option>
+                        <option value="completed">Terminées</option>
+                        <option value="all">Toutes les tâches</option>
+                      </select>
+                    </label>
+                    <span className="workspaceResultCount">{visibleTasks.length} tâche(s)</span>
+                  </div>
+                  <section className="inbox">
             <h2>Tâches clarifiées</h2>
-            {clarified.length === 0 ? <p className="empty">Aucune tâche clarifiée.</p> : (
-              <ul>{clarified.map((task) => (
+            {visibleTasks.length === 0 ? <p className="empty">Aucune tâche dans ce filtre.</p> : (
+              <ul>{visibleTasks.map((task) => (
                 <li key={task.id}>
                   <strong>{task.title}</strong>
                   <button className="detailToggle" type="button" onClick={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}>{expandedTaskId === task.id ? "Masquer les segments" : "Détail et segments"}</button>
@@ -309,8 +371,28 @@ export function App() {
                 </li>
               ))}</ul>
             )}
-            <h3>Vue par projet</h3>
-            {[...projects, { id: "", title: "Sans projet", description: null, status: "ACTIVE" }].map((project) => {
+          </section>
+                </div>
+              )}
+              {page === "projects" && (
+                <div className="workspacePage">
+                  <section className="inbox">
+            <h2>Projets et types de travail</h2>
+            <div className="detailGrid">
+              <form onSubmit={(e) => createReference(e, "projects", newProject)}>
+                <label>Nouveau projet<input maxLength={500} value={newProject} onChange={(e) => setNewProject(e.target.value)} /></label>
+                <button disabled={saving || !newProject.trim()}>Créer le projet</button>
+              </form>
+              <form onSubmit={(e) => createReference(e, "work-types", newWorkType)}>
+                <label>Nouveau type de travail<input maxLength={200} value={newWorkType} onChange={(e) => setNewWorkType(e.target.value)} /></label>
+                <button disabled={saving || !newWorkType.trim()}>Ajouter le type</button>
+              </form>
+            </div>
+            {workTypes.length > 0 && <p className="muted">Types : {workTypes.map((type) => type.name).join(", ")}</p>}
+          </section>
+                  <section className="inbox projectsOverview">
+                    <div className="sectionHeading"><h2>Vue par projet</h2><span>{projects.length}</span></div>
+                    {[...projects, { id: "", title: "Sans projet", description: null, status: "ACTIVE" }].map((project) => {
               const inProject = clarified.filter((task) => (task.project_id ?? "") === project.id);
               return (
                 <div className="projectGroup" key={project.id || "unassigned"}>
@@ -319,9 +401,23 @@ export function App() {
                 </div>
               );
             })}
-          </section>
-        </>
-      )}
-    </main>
+                  </section>
+                </div>
+              )}
+              {page === "planning" && (
+                <div className="workspacePage">
+                  <WeeklyCapacity tasks={tasks} workTypes={workTypes} />
+                </div>
+              )}
+              {page === "weekly" && (
+                <div className="workspacePage">
+                  <WeeklyReview />
+                </div>
+              )}
+            </>
+          )}
+        </main>
+      </div>
+    </div>
   );
 }

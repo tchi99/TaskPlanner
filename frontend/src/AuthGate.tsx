@@ -82,7 +82,7 @@ export function AuthGate() {
   if (!ready) return <main className="shell"><p>Vérification de la session…</p></main>;
   if (session) return (
     <>
-      <header className="authBar">
+      <header className="authBar workspaceAuthBar">
         <span>Connecté à TaskPlanner</span>
         <button type="button" disabled={working} onClick={() => void signOut()}>Se déconnecter</button>
       </header>
