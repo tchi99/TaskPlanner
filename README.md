@@ -76,7 +76,7 @@ Ce mode facultatif ne crée **aucun** service Render ni projet Supabase. Voir
 de sécurité. Depuis PowerShell à la racine du dépôt :
 
 ```powershell
-Copy-Item docker/.env.example .env  # ne pas écraser une .env existante
+if (-not (Test-Path .env)) { Copy-Item docker/.env.example .env }  # ne pas écraser une .env existante
 notepad .env                        # remplir TASKPLANNER_DOCKER_DB_PASSWORD
 docker compose up --build -d
 ```
