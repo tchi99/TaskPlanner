@@ -130,7 +130,7 @@ test("une réservation sans conflit s'annule dans la semaine réelle sans mutati
   await page.getByRole("button", { name: "Actualiser" }).click();
   await expect(page.getByText("Aucun conflit ouvert de réservation")).toBeVisible();
   await page.getByRole("button", { name: "Annuler la réservation booking-", exact: true }).click();
-  await expect(page.getByLabel("Réservation locale")).toHaveValue("booking-one");
+  await expect(page.getByRole("combobox", { name: "Réservation locale", exact: true })).toHaveValue("booking-one");
   await expect(page.getByLabel("Raison de la décision")).toHaveValue("Annulation manuelle");
   const previewRequest = page.waitForRequest((request) =>
     request.url().includes("/resolution/preview") && request.method() === "POST");
