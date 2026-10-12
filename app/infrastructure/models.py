@@ -242,7 +242,7 @@ class HistoryEventRecord(Base):
             "sequence",
         ),
         CheckConstraint(
-            "entity_type IN ('TASK','SEGMENT')",
+            "entity_type IN ('TASK','SEGMENT','AVAILABILITY_RULE')",
             name="ck_history_events_entity_type",
         ),
         CheckConstraint(
@@ -336,3 +336,58 @@ class WorkSessionRecord(Base):
     work_type_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     estimated_minutes: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     planned_minutes: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+
+
+class RecurringAvailabilityRuleRecord(Base):
+    """Stable series identity; optimistic revision counter is CAS-updated."""
+    __tablename__ = "recurring_availability_rules"
+    __table_args__ = (
+        CheckConstraint("version > 0", name="ck_recurring_rules_version"),
+        Index("ix_recurring_rules_owner", "owner_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    version: Mapped[int] = mapped_column(Integer(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class RecurringAvailabilityRevisionRecord(Base):
+    """Immutable full configuration at a civil effective date."""
+    __tablename__ = "recurring_availability_revisions"
+    __table_args__ = (
+        UniqueConstraint("rule_id", "number", name="uq_recurring_revision_number"),
+        UniqueConstraint("rule_id", "effective_from", name="uq_recurring_revision_effective"),
+        CheckConstraint("number > 0", name="ck_recurring_revisions_number"),
+        CheckConstraint("kind IN ('GENERAL','CATEGORIZED')", name="ck_recurring_revisions_kind"),
+        CheckConstraint("mode IS NULL OR mode IN ('PROTECTED','PREFERRED')",
+                        name="ck_recurring_revisions_mode"),
+        CheckConstraint("start_fold IS NULL OR start_fold IN (0,1)",
+                        name="ck_recurring_revisions_start_fold"),
+        CheckConstraint("end_fold IS NULL OR end_fold IN (0,1)",
+                        name="ck_recurring_revisions_end_fold"),
+        CheckConstraint("valid_until IS NULL OR valid_until > effective_from",
+                        name="ck_recurring_revisions_range"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    rule_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("recurring_availability_rules.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    number: Mapped[int] = mapped_column(Integer(), nullable=False)
+    effective_from: Mapped[date] = mapped_column(Date(), nullable=False)
+    valid_until: Mapped[date | None] = mapped_column(Date(), nullable=True)
+    timezone_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    days_of_week: Mapped[list[int]] = mapped_column(JSON(), nullable=False)
+    starts_at_local: Mapped[str] = mapped_column(String(5), nullable=False)
+    ends_at_local: Mapped[str] = mapped_column(String(5), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    work_type_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("work_types.id", ondelete="RESTRICT"), nullable=True,
+    )
+    mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    enabled: Mapped[bool] = mapped_column(nullable=False)
+    start_fold: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    end_fold: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    recorded_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)

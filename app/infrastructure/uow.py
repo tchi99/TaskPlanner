@@ -15,6 +15,7 @@ from app.infrastructure.daily_repository import SqlDailyReviewRepository
 from app.infrastructure.weekly_repository import SqlWeeklyReviewRepository
 from app.infrastructure.resume_repository import SqlResumePointRepository
 from app.infrastructure.work_session_repository import SqlWorkSessionRepository
+from app.infrastructure.recurring_availability_repository import SqlRecurringAvailabilityRepository
 
 
 class SqlAlchemyUnitOfWork:
@@ -25,6 +26,7 @@ class SqlAlchemyUnitOfWork:
     def __enter__(self) -> "SqlAlchemyUnitOfWork":
         self.session = self._session_factory()
         self.availability = SqlAvailabilityRepository(self.session)
+        self.recurring_availability = SqlRecurringAvailabilityRepository(self.session)
         self.time_blocks = SqlConfirmedTimeBlockRepository(self.session)
         self.daily_reviews = SqlDailyReviewRepository(self.session)
         self.weekly_reviews = SqlWeeklyReviewRepository(self.session)

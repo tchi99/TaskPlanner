@@ -13,6 +13,7 @@ from app.domain.daily import DailyReview
 from app.domain.weekly import WeeklyDecision, WeeklySubject
 from app.domain.start import ResumePoint
 from app.domain.work_sessions import WorkSession
+from app.domain.recurring_availability import RecurringAvailabilityRule, RuleRevision
 from datetime import datetime
 
 
@@ -57,6 +58,13 @@ class AvailabilityRepository(Protocol):
     def delete(self, block_id: UUID) -> None: ...
 
 
+class RecurringAvailabilityRepository(Protocol):
+    def get(self, rule_id: UUID, owner_id: str) -> RecurringAvailabilityRule | None: ...
+    def list_owner(self, owner_id: str) -> Sequence[RecurringAvailabilityRule]: ...
+    def add(self, value: RecurringAvailabilityRule) -> None: ...
+    def append_revision(self, value: RuleRevision, *, expected_version: int) -> None: ...
+
+
 class ConfirmedTimeBlockRepository(Protocol):
     def list_week(self, week_start: date) -> Sequence[ConfirmedTimeBlock]: ...
     def add(self, block: ConfirmedTimeBlock) -> None: ...
@@ -92,6 +100,7 @@ class WorkSessionRepository(Protocol):
 
 class UnitOfWork(Protocol):
     availability: AvailabilityRepository
+    recurring_availability: RecurringAvailabilityRepository
     time_blocks: ConfirmedTimeBlockRepository
     daily_reviews: DailyReviewRepository
     weekly_reviews: WeeklyReviewRepository
