@@ -5,6 +5,7 @@ from app.config import get_settings
 from app.security import JwtVerifier, AuthenticationFailure, AuthorizationFailure
 from app.server.capacity import router as capacity_router
 from app.server.recurring_availability import router as recurring_availability_router
+from app.server.effective_availability import router as effective_availability_router
 from app.server.calendar import router as calendar_router
 from app.server.time_blocks import router as time_blocks_router
 from app.server.decomposition import router as decomposition_router
@@ -69,6 +70,7 @@ app.include_router(projects_router)
 app.include_router(work_types_router)
 app.include_router(capacity_router)
 app.include_router(recurring_availability_router)
+app.include_router(effective_availability_router)
 app.include_router(calendar_router)
 app.include_router(time_blocks_router)
 app.include_router(decomposition_router)
