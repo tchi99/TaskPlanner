@@ -222,3 +222,21 @@ def test_stale_preview_and_calendar_conflict_never_mutate_booking(runtime):
     assert token["calendar_checked"] is False
     assert apply(client, url, cancel, token).status_code == 200
     assert client.get(base).json() == []
+
+
+def test_competing_confirmations_are_serialized_and_one_wins(runtime):
+    client, calendar, factory = runtime
+    monday = week()
+    base, task, booking, day = create_booking(client, monday)
+    unavailability(client, day)
+    url = path(base, booking)
+    keep, keep_preview = snapshot(client, url, "KEEP")
+    cancel, cancel_preview = snapshot(client, url, "CANCEL")
+    assert apply(client, url, cancel, cancel_preview).status_code == 200
+    assert apply(client, url, keep, keep_preview).status_code == 409
+    assert client.get(base).json() == []
+    with factory() as session:
+        rows = session.scalars(select(HistoryEventRecord).where(
+            HistoryEventRecord.entity_type == "TIME_BLOCK",
+        )).all()
+        assert len(rows) == 1
