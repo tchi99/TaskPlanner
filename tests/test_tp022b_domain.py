@@ -65,7 +65,7 @@ def test_cancel_single_tuesday_does_not_refill_general_bucket_and_thursday_remai
     assert actual.declared_minutes == 210
     assert sum(b.minutes for b in actual.blocks if b.work_type_id == focus) == 150
     week_two = projected((envelope, categorized), (canceled,),
-                         MONDAY + timedelta(days=7), MONDAY + timedelta(days=14))
+                         start=MONDAY + timedelta(days=7), end=MONDAY + timedelta(days=14))
     assert week_two.declared_minutes == 360
 
 
@@ -79,7 +79,7 @@ def test_move_occurrence_to_another_week_does_not_resurrect_original():
                       kind=RuleKind.GENERAL)
     first = projected((rule,), (moved,))
     second = projected((rule,), (moved,),
-                       MONDAY + timedelta(days=7), MONDAY + timedelta(days=14))
+                       start=MONDAY + timedelta(days=7), end=MONDAY + timedelta(days=14))
     assert first.declared_minutes == 0
     # Original Jan 12 occurrence still exists; the Jan 6 occurrence moved to Jan 13.
     assert second.declared_minutes == 360
