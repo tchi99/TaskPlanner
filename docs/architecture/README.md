@@ -16,6 +16,9 @@ Ce dossier contient les Architecture Decision Records (ADR) de TaskPlanner.
 
 - [ADR-0018](./ADR-0018-supabase-auth-and-api-boundary.md) — identité Supabase, JWT/JWKS et frontière API;
 
+- [ADR-0020](./ADR-0020-recurring-effective-availability.md) — règles récurrentes, plages protégées/préférentielles, temps général et projection effective;
+- [ADR-0021](./ADR-0021-booking-conflicts-and-concurrency.md) — dérogations conflictuelles, résolution explicite des réservations et concurrence;
+
 ## Convention
 
 Chaque ADR doit contenir au minimum :
