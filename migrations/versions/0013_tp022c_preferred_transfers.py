@@ -16,7 +16,8 @@ def upgrade() -> None:
     with op.batch_alter_table("confirmed_time_blocks") as batch:
         batch.add_column(sa.Column(
             "transferred_from_work_type_id", sa.String(36),
-            sa.ForeignKey("work_types.id", ondelete="RESTRICT"),
+            sa.ForeignKey("work_types.id", ondelete="RESTRICT",
+                          name="fk_confirmed_time_blocks_transfer_work_type"),
             nullable=True,
         ))
 
