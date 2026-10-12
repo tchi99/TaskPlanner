@@ -3,7 +3,7 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.application.calendar import CalendarReader
@@ -18,6 +18,7 @@ from app.infrastructure.google_calendar import (
 from app.infrastructure.uow import get_uow
 from app.server.calendar import get_calendar_reader
 from app.server.errors import invoke
+from app.server.recurring_availability import _owner
 
 router = APIRouter(prefix="/api/capacity/weeks", tags=["time-blocks"])
 
@@ -25,11 +26,13 @@ router = APIRouter(prefix="/api/capacity/weeks", tags=["time-blocks"])
 class TimeBlockSelection(BaseModel):
     task_ids: list[UUID]
     timezone_name: str = "UTC"
+    offer_transfers: bool = False
 
 
 class ConfirmTimeBlocks(TimeBlockSelection):
     fingerprint: str = Field(min_length=64, max_length=64)
     confirmed: Literal[True]
+    accept_transfers: bool = False
 
 
 class SuggestedBlockResponse(BaseModel):
@@ -40,6 +43,7 @@ class SuggestedBlockResponse(BaseModel):
     starts_at: datetime
     ends_at: datetime
     minutes: int
+    transferred_from: UUID | None = None
 
 
 class UnplacedResponse(BaseModel):
@@ -57,13 +61,14 @@ class ConfirmedBlockResponse(BaseModel):
     work_type_id: UUID | None
     starts_at: datetime
     ends_at: datetime
+    transferred_from: UUID | None = None
 
     @classmethod
     def from_domain(cls, block: ConfirmedTimeBlock) -> "ConfirmedBlockResponse":
         return cls(
             id=block.id, task_id=block.task_id, segment_id=block.segment_id,
             work_type_id=block.work_type_id, starts_at=block.starts_at,
-            ends_at=block.ends_at,
+            ends_at=block.ends_at, transferred_from=block.transferred_from,
         )
 
 
@@ -74,6 +79,8 @@ class TimeBlockPreviewResponse(BaseModel):
     fingerprint: str
     state: str = "PROPOSED"
     can_confirm: bool
+    requires_transfer_confirmation: bool = False
+    transfer_consequences: list[str] = []
     calendar_checked: bool = True
     destinations: str = "TASKPLANNER_LOCAL_ONLY"
     suggestions: list[SuggestedBlockResponse]
@@ -85,10 +92,18 @@ class TimeBlockPreviewResponse(BaseModel):
             week_start=proposal.week_start, timezone_name=proposal.timezone_name,
             task_ids=list(proposal.task_ids), fingerprint=proposal.fingerprint,
             can_confirm=proposal.can_confirm,
+            requires_transfer_confirmation=proposal.requires_transfer_confirmation,
+            transfer_consequences=[
+                f"Réaffecter {s.minutes} minutes PREFERRED du type "
+                f"{s.transferred_from} au type {s.work_type_id}; "
+                "le temps libre du type donneur diminue sans modifier ses réservations."
+                for s in proposal.suggestions if s.transferred_from is not None
+            ],
             suggestions=[SuggestedBlockResponse(**{
                 "task_id": s.task_id, "segment_id": s.segment_id, "label": s.label,
                 "work_type_id": s.work_type_id, "starts_at": s.starts_at,
                 "ends_at": s.ends_at, "minutes": s.minutes,
+                "transferred_from": s.transferred_from,
             }) for s in proposal.suggestions],
             unplaced=[UnplacedResponse(**{
                 "task_id": u.task_id, "segment_id": u.segment_id, "label": u.label,
@@ -116,25 +131,28 @@ def _run(action):
 
 @router.post("/{week_start}/time-blocks/preview", response_model=TimeBlockPreviewResponse)
 def preview(
-    week_start: date, payload: TimeBlockSelection,
+    week_start: date, payload: TimeBlockSelection, request: Request,
     uow: UnitOfWork = Depends(get_uow),
     reader: CalendarReader = Depends(get_calendar_reader),
 ) -> TimeBlockPreviewResponse:
     value, _ = _run(lambda: preview_time_blocks(
-        uow, reader, week_start, payload.timezone_name, payload.task_ids
+        uow, reader, week_start, payload.timezone_name, payload.task_ids,
+        owner_id=_owner(request), offer_transfers=payload.offer_transfers,
     ))
     return TimeBlockPreviewResponse.from_domain(value)
 
 
 @router.post("/{week_start}/time-blocks/confirm", response_model=ConfirmationResponse)
 def confirm(
-    week_start: date, payload: ConfirmTimeBlocks,
+    week_start: date, payload: ConfirmTimeBlocks, request: Request,
     uow: UnitOfWork = Depends(get_uow),
     reader: CalendarReader = Depends(get_calendar_reader),
 ) -> ConfirmationResponse:
     _, blocks = _run(lambda: preview_time_blocks(
         uow, reader, week_start, payload.timezone_name, payload.task_ids,
         expected_fingerprint=payload.fingerprint, confirm=True,
+        owner_id=_owner(request), offer_transfers=payload.offer_transfers,
+        accept_transfers=payload.accept_transfers,
     ))
     return ConfirmationResponse(blocks=[
         ConfirmedBlockResponse.from_domain(block) for block in blocks

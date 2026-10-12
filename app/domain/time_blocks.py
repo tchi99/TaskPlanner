@@ -25,6 +25,7 @@ class ConfirmedTimeBlock:
     starts_at: datetime
     ends_at: datetime
     id: UUID = field(default_factory=uuid4)
+    transferred_from: UUID | None = None
 
     def __post_init__(self) -> None:
         if any(v.tzinfo is None or v.utcoffset() is None
@@ -45,6 +46,7 @@ class SuggestedTimeBlock:
     starts_at: datetime
     ends_at: datetime
     minutes: int
+    transferred_from: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +67,7 @@ class TimeBlockPreview:
     suggestions: tuple[SuggestedTimeBlock, ...]
     unplaced: tuple[UnplacedWork, ...]
     can_confirm: bool
+    requires_transfer_confirmation: bool = False
 
 
 def _minute(dt: datetime, *, round_up: bool = False) -> int:
@@ -104,6 +107,9 @@ def suggest_time_blocks(
     commitments: Sequence[CalendarCommitment],
     confirmed: Sequence[ConfirmedTimeBlock],
     candidates: Sequence[TaskAggregate],
+    *, preferred_blocks: Sequence[AvailabilityBlock] = (),
+    offer_transfers: bool = False,
+    availability_fingerprint: str | None = None,
 ) -> TimeBlockPreview:
     """Greedily place user-ordered open work units inside genuinely free time.
 
@@ -111,6 +117,9 @@ def suggest_time_blocks(
     or silently accept a partial schedule. A unit may use multiple free spans.
     """
     validate_blocks(week_start, manual_blocks)
+    block_ids = {v.id for v in manual_blocks}
+    if any(v.id not in block_ids for v in preferred_blocks):
+        raise ValueError("preferred blocks must come from effective availability")
     zone = ZoneInfo(timezone_name)
     task_ids = [a.task.id for a in candidates]
     if not task_ids or len(set(task_ids)) != len(task_ids):
@@ -122,9 +131,13 @@ def suggest_time_blocks(
     already_planned = {b.task_id for b in confirmed}
     suggestions: list[SuggestedTimeBlock] = []
     unplaced: list[UnplacedWork] = []
+    pending: list[tuple[UUID, UUID | None, str, UUID | None, int, datetime | None]] = []
     units: list[tuple[UUID, UUID | None, str, UUID | None, int | None, datetime | None]] = []
     snapshot = {
         "week": week_start.isoformat(), "timezone": timezone_name,
+        "availability_revision": availability_fingerprint,
+        "offer_transfers": offer_transfers,
+        "preferred": sorted(str(v.id) for v in preferred_blocks),
         "manual": sorted((str(b.id), b.starts_at.isoformat(), b.ends_at.isoformat(),
                           str(b.work_type_id)) for b in manual_blocks),
         "calendar": sorted((c.calendar_id, c.event_id, c.starts_at.isoformat(),
@@ -186,11 +199,52 @@ def suggest_time_blocks(
                 task_id, segment_id, label, work_type, begins, finishes, length
             ))
         if remaining:
-            unplaced.append(UnplacedWork(task_id, segment_id, label, remaining,
-                                         "INSUFFICIENT_FREE_TIME_BEFORE_DEADLINE"))
+            pending.append((task_id, segment_id, label, work_type, remaining, due_at))
+    # All strict allocations happen first; only unused PREFERRED minutes may
+    # be offered to another WorkType. PROTECTED, manual and NULL are never donors.
+    if offer_transfers and pending and preferred_blocks:
+        tentative = tuple(ConfirmedTimeBlock(
+            week_start, s.task_id, s.segment_id, s.work_type_id,
+            s.starts_at, s.ends_at,
+        ) for s in suggestions)
+        transferable = _free_intervals(preferred_blocks, commitments,
+                                       (*confirmed, *tentative))
+        revised = []
+        for task_id, segment_id, label, work_type, remaining, due_at in pending:
+            cutoff = _minute(due_at) if due_at is not None else None
+            for donor in sorted(transferable, key=lambda v: str(v)):
+                if donor == work_type or donor is None:
+                    continue
+                for interval in transferable[donor]:
+                    if not remaining:
+                        break
+                    if cutoff is not None and interval[0] >= cutoff:
+                        continue
+                    limit = min(interval[1], cutoff) if cutoff is not None else interval[1]
+                    length = min(remaining, max(0, limit - interval[0]))
+                    if not length:
+                        continue
+                    start = interval[0]
+                    interval[0] += length
+                    remaining -= length
+                    begins = datetime.fromtimestamp(start * 60, tz=timezone.utc).astimezone(zone)
+                    ends = datetime.fromtimestamp((start + length) * 60, tz=timezone.utc).astimezone(zone)
+                    suggestions.append(SuggestedTimeBlock(
+                        task_id, segment_id, label, work_type, begins, ends,
+                        length, transferred_from=donor,
+                    ))
+                if not remaining:
+                    break
+            if remaining:
+                revised.append((task_id, segment_id, label, work_type, remaining, due_at))
+        pending = revised
+    for task_id, segment_id, label, _, remaining, _ in pending:
+        unplaced.append(UnplacedWork(task_id, segment_id, label, remaining,
+                                     "INSUFFICIENT_FREE_TIME_BEFORE_DEADLINE"))
     fingerprint = sha256(json.dumps(snapshot, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
     return TimeBlockPreview(
         week_start, timezone_name, tuple(task_ids), fingerprint,
         tuple(suggestions), tuple(unplaced),
         bool(suggestions) and not unplaced,
+        any(v.transferred_from is not None for v in suggestions),
     )

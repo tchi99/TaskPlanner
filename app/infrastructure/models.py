@@ -184,6 +184,9 @@ class ConfirmedTimeBlockRecord(Base):
     )
     starts_at: Mapped[str] = mapped_column(String(40), nullable=False)
     ends_at: Mapped[str] = mapped_column(String(40), nullable=False)
+    transferred_from_work_type_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("work_types.id", ondelete="RESTRICT"), nullable=True,
+    )
 
 
 class DailyReviewRecord(Base):

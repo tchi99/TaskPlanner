@@ -169,6 +169,7 @@ def save_exception(
         version=(expected_version + 1 if expected_version is not None else 1), **fields,
     )
     with uow:
+        uow.lock_planning()
         actual, projection, _ = _preview_loaded(uow, owner_id, candidate, exception_id)
         if actual != fingerprint:
             raise RuleConflict("availability preview is stale; preview again")

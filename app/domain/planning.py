@@ -22,6 +22,7 @@ class PlanOptionKind(StrEnum):
     REVIEW_SCOPE = "REVIEW_SCOPE"
     CONSIDER_DELEGATION = "CONSIDER_DELEGATION"
     CLARIFY_ESTIMATES = "CLARIFY_ESTIMATES"
+    REASSIGN_PREFERRED = "REASSIGN_PREFERRED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +62,7 @@ def propose_plan(
     week_start: date,
     blocks: Sequence[AvailabilityBlock],
     candidates: Sequence[TaskAggregate],
+    *, preferred_declared_minutes: int = 0,
 ) -> PlanProposalPreview:
     """Offer scenarios without accepting a decision or modifying a schedule.
 
@@ -142,6 +144,21 @@ def propose_plan(
             task_ids,
             ("Aucune ressource, acceptation ni capacité externe n'est présumée.",
              "La faisabilité reste celle du scénario initial tant qu'aucune décision n'est prise."),
+            capacity=None,
+        )
+    if baseline.status is CapacityStatus.OVER_CAPACITY and preferred_declared_minutes:
+        missing = sum(max(0, -v.remaining_minutes) for v in baseline.by_work_type)
+        ceiling = min(missing, preferred_declared_minutes)
+        add(
+            PlanOptionKind.REASSIGN_PREFERRED, "Étudier les plages préférentielles",
+            "Proposition à confirmer après vérification des créneaux réellement libres.",
+            task_ids,
+            (f"Jusqu'à {ceiling} minutes déclarées pourraient être étudiées; "
+             "ce chiffre n'est pas une garantie de créneau libre.",
+             "Aucun emprunt au temps général NULL ou aux plages PROTECTED.",
+             "Une prévisualisation time-blocking avec offer_transfers=true "
+             "chiffre les transferts exacts avant acceptation.",
+             "Les engagements Google Calendar et locaux restent prioritaires."),
             capacity=None,
         )
     if baseline.unestimated_units:

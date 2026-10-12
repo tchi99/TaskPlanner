@@ -26,6 +26,8 @@ class SqlConfirmedTimeBlockRepository:
             work_type_id=UUID(row.work_type_id) if row.work_type_id else None,
             starts_at=datetime.fromisoformat(row.starts_at),
             ends_at=datetime.fromisoformat(row.ends_at),
+            transferred_from=(UUID(row.transferred_from_work_type_id)
+                              if row.transferred_from_work_type_id else None),
         ) for row in records]
 
     def add(self, block: ConfirmedTimeBlock) -> None:
@@ -34,4 +36,6 @@ class SqlConfirmedTimeBlockRepository:
             segment_id=str(block.segment_id) if block.segment_id else None,
             work_type_id=str(block.work_type_id) if block.work_type_id else None,
             starts_at=block.starts_at.isoformat(), ends_at=block.ends_at.isoformat(),
+            transferred_from_work_type_id=(str(block.transferred_from)
+                                           if block.transferred_from else None),
         ))

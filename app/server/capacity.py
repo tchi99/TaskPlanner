@@ -2,7 +2,7 @@
 from datetime import date, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from pydantic import BaseModel, field_validator
 
 from app.application.capacity import (
@@ -14,6 +14,7 @@ from app.domain.capacity import (
 )
 from app.infrastructure.uow import get_uow
 from app.server.errors import invoke
+from app.server.recurring_availability import _owner
 
 
 router = APIRouter(prefix="/api/capacity/weeks", tags=["capacity"])
@@ -59,6 +60,8 @@ class CapacityByTypeResponse(BaseModel):
 
 
 class EvaluationResponse(BaseModel):
+    projection: str = "DECLARED_NOT_CALENDAR_VERIFIED"
+    calendar_checked: bool = False
     week_start: date
     available_minutes: int
     known_demand_minutes: int
@@ -98,6 +101,7 @@ class WeekResponse(BaseModel):
 
 class SelectionRequest(BaseModel):
     task_ids: list[UUID]
+    timezone_name: str = "UTC"
 
 
 @router.get("/{week_start}", response_model=WeekResponse)
@@ -141,8 +145,10 @@ def remove_block(
 def evaluate(
     week_start: date,
     payload: SelectionRequest,
+    request: Request,
     uow: UnitOfWork = Depends(get_uow),
 ) -> EvaluationResponse:
     return EvaluationResponse.from_domain(invoke(
-        lambda: evaluate_selection(uow, week_start, payload.task_ids)
+        lambda: evaluate_selection(uow, week_start, payload.task_ids,
+                                   payload.timezone_name, _owner(request))
     ))

@@ -7,6 +7,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.application.calendar import CalendarReader
+from app.application.planning_availability import effective_week
 from app.application.uow import UnitOfWork
 from app.domain.capacity import validate_week_start
 from app.domain.time_blocks import (
@@ -34,6 +35,8 @@ def preview_time_blocks(
     uow: UnitOfWork, reader: CalendarReader, week_start: date,
     timezone_name: str, task_ids: Sequence[UUID],
     *, expected_fingerprint: str | None = None, confirm: bool = False,
+    owner_id: str = "urn:taskplanner:local", offer_transfers: bool = False,
+    accept_transfers: bool = False,
 ) -> tuple[TimeBlockPreview, tuple[ConfirmedTimeBlock, ...]]:
     if not task_ids or len(set(task_ids)) != len(task_ids):
         raise ValueError("candidate tasks must be nonempty and unique")
@@ -41,7 +44,12 @@ def preview_time_blocks(
     # Always fail closed on missing/failed calendar reads (no empty-calendar fallback).
     commitments = tuple(reader.list_commitments(start, end, timezone_name))
     with uow:
-        blocks = tuple(uow.availability.list_week(week_start))
+        # The lock precedes all local reads/revalidation and is held through commit.
+        # The external calendar has no locking guarantee (read-only API).
+        if confirm:
+            uow.lock_planning()
+        availability = effective_week(uow, owner_id, week_start, timezone_name)
+        blocks = availability.blocks
         existing = tuple(uow.time_blocks.list_week(week_start))
         candidates = []
         for task_id in task_ids:
@@ -50,7 +58,10 @@ def preview_time_blocks(
                 raise LookupError(f"task {task_id} not found")
             candidates.append(aggregate)
         result = suggest_time_blocks(
-            week_start, timezone_name, blocks, commitments, existing, candidates
+            week_start, timezone_name, blocks, commitments, existing, candidates,
+            preferred_blocks=availability.preferred_blocks,
+            offer_transfers=offer_transfers,
+            availability_fingerprint=availability.revision_fingerprint,
         )
         if not confirm:
             return result, ()
@@ -58,6 +69,8 @@ def preview_time_blocks(
             raise StaleTimeBlockProposal("proposal is stale; request a new preview")
         if not result.can_confirm:
             raise ValueError("proposal is incomplete and cannot be confirmed")
+        if result.requires_transfer_confirmation and not accept_transfers:
+            raise ValueError("PREFERRED transfers require explicit acceptance")
         accepted = tuple(ConfirmedTimeBlock(
             week_start=week_start,
             task_id=s.task_id,
@@ -65,6 +78,7 @@ def preview_time_blocks(
             work_type_id=s.work_type_id,
             starts_at=s.starts_at,
             ends_at=s.ends_at,
+            transferred_from=s.transferred_from,
         ) for s in result.suggestions)
         for block in accepted:
             uow.time_blocks.add(block)
