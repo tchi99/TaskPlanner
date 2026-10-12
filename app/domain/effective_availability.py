@@ -187,8 +187,12 @@ def project_effective(
             continue
         start, end = max(start, lo), min(end, hi)
         matching = sorted(
-            (v for v in blocks if v.work_type_id == booking.work_type_id
-             and v.starts_at < end and v.ends_at > start),
+            (v for v in blocks if (
+                v.work_type_id == booking.work_type_id
+                or (booking.transferred_from is not None
+                    and v.work_type_id == booking.transferred_from
+                    and v.mode is AvailabilityMode.PREFERRED)
+             ) and v.starts_at < end and v.ends_at > start),
             key=lambda v: v.starts_at,
         )
         cursor = start

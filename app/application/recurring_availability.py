@@ -43,6 +43,7 @@ def create_rule(
     _ensure_future(revision)
     rule = RecurringAvailabilityRule(identity, owner_id, 1, (revision,))
     with uow:
+        uow.lock_planning()
         _check_work_type(uow, revision)
         uow.recurring_availability.add(rule)
         uow.history.append(_audit(rule.id, 1, revision.effective_from, "AVAILABILITY_RULE_CREATED"))
@@ -70,6 +71,7 @@ def revise_rule(
     if expected_version < 1:
         raise ValueError("expected_version must be positive")
     with uow:
+        uow.lock_planning()
         current = uow.recurring_availability.get(rule_id, owner_id)
         if current is None:
             raise LookupError("recurring rule not found")

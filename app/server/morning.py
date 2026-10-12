@@ -2,7 +2,7 @@
 from datetime import date, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from app.application.morning import morning_brief
@@ -11,6 +11,7 @@ from app.domain.morning import MorningBrief, MorningItem
 from app.infrastructure.uow import get_uow
 from app.server.capacity import EvaluationResponse
 from app.server.errors import invoke
+from app.server.recurring_availability import _owner
 
 router = APIRouter(prefix="/api/review", tags=["review"])
 
@@ -68,8 +69,8 @@ class MorningResponse(BaseModel):
 
 
 @router.get("/morning", response_model=MorningResponse)
-def morning(day: date, timezone_name: str = "UTC",
+def morning(day: date, request: Request, timezone_name: str = "UTC",
             uow: UnitOfWork = Depends(get_uow)) -> MorningResponse:
     return MorningResponse.from_domain(invoke(
-        lambda: morning_brief(uow, day, timezone_name)
+        lambda: morning_brief(uow, day, timezone_name, _owner(request))
     ))

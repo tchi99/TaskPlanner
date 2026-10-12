@@ -64,6 +64,7 @@ def build_morning_brief(
     blocks: Sequence[AvailabilityBlock],
     aggregates: Sequence[TaskAggregate],
     inbox_count: int,
+    *, manual_block_count: int | None = None,
 ) -> MorningBrief:
     """Summarize facts without selecting a day plan or suggesting an accepted move."""
     try:
@@ -138,7 +139,8 @@ def build_morning_brief(
 
     return MorningBrief(
         day=day, timezone_name=timezone_name, week_start=monday,
-        today_available_minutes=today_minutes, manual_block_count=len(blocks),
+        today_available_minutes=today_minutes,
+        manual_block_count=(len(blocks) if manual_block_count is None else manual_block_count),
         open_task_count=len(aggregates), inbox_count=inbox_count,
         weekly_if_all_open=weekly,
         must_review=tuple(must_review), may_slip=tuple(may_slip),

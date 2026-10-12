@@ -3,7 +3,7 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.application.uow import UnitOfWork
@@ -15,6 +15,7 @@ from app.domain.weekly import WeeklyAction, WeeklyDecision, WeeklySubject
 from app.infrastructure.uow import get_uow
 from app.server.capacity import EvaluationResponse
 from app.server.errors import invoke
+from app.server.recurring_availability import _owner
 
 router = APIRouter(prefix="/api/review/weekly", tags=["review"])
 
@@ -116,10 +117,10 @@ def _run(action):
 
 
 @router.get("", response_model=WeeklyResponse)
-def weekly(week_start: date, timezone_name: str = "UTC",
+def weekly(week_start: date, request: Request, timezone_name: str = "UTC",
            uow: UnitOfWork = Depends(get_uow)) -> WeeklyResponse:
     return WeeklyResponse.from_domain(_run(lambda: read_weekly(
-        uow, week_start, timezone_name,
+        uow, week_start, timezone_name, _owner(request),
     )))
 
 

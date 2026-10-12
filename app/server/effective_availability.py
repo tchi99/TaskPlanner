@@ -8,9 +8,13 @@ from app.application.effective_availability import (
     get_exception, list_exceptions, preview_exception, read_effective, save_exception,
 )
 from app.application.uow import UnitOfWork
+from app.application.verified_capacity import verified_week
 from app.domain.availability_exceptions import AvailabilityException, ExceptionAction
 from app.domain.recurring_availability import AvailabilityMode, RuleConflict, RuleKind
 from app.infrastructure.uow import get_uow
+from app.infrastructure.google_calendar import GoogleCalendarNotConfigured, GoogleCalendarUnavailable
+from app.server.calendar import get_calendar_reader
+from app.application.calendar import CalendarReader
 from app.server.errors import invoke
 from app.server.recurring_availability import _owner
 
@@ -180,3 +184,21 @@ def disable_exception(
         payload.acknowledge_conflicts, exception_id=exception_id,
         expected_version=payload.expected_version,
     )))
+
+
+@router.get("/verified")
+def verified(
+    request: Request, week_start: date = Query(),
+    timezone_name: str = Query(),
+    uow: UnitOfWork = Depends(get_uow),
+    reader: CalendarReader = Depends(get_calendar_reader),
+):
+    """Read-only free capacity after conservative calendar and booking cuts."""
+    try:
+        return invoke(lambda: verified_week(
+            uow, reader, _owner(request), week_start, timezone_name,
+        ))
+    except GoogleCalendarNotConfigured as exc:
+        raise HTTPException(status_code=503, detail="Google Calendar is not configured") from exc
+    except GoogleCalendarUnavailable as exc:
+        raise HTTPException(status_code=502, detail="Google Calendar is unavailable") from exc

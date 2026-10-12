@@ -1,5 +1,6 @@
 from types import TracebackType
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.infrastructure.capacity_repository import SqlAvailabilityRepository
@@ -52,6 +53,21 @@ class SqlAlchemyUnitOfWork:
             self.session.rollback()
         self.session.close()
         self.session = None
+
+    def lock_planning(self) -> None:
+        """Serialize confirmed booking and availability writes across workers.
+
+        SQLite takes its write lock before reading; PostgreSQL holds a
+        transaction-scoped advisory lock until commit or rollback.
+        """
+        assert self.session is not None
+        connection = self.session.connection()
+        if connection.dialect.name == "sqlite":
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+        elif connection.dialect.name == "postgresql":
+            connection.execute(text("SELECT pg_advisory_xact_lock(246802468)"))
+        else:
+            raise RuntimeError("unsupported planning transaction dialect")
 
     def commit(self) -> None:
         assert self.session is not None

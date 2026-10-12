@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from app.application.planning import propose_week
@@ -13,6 +13,7 @@ from app.domain.planning import PlanOptionPreview, PlanProposalPreview
 from app.infrastructure.uow import get_uow
 from app.server.capacity import EvaluationResponse, SelectionRequest
 from app.server.errors import invoke
+from app.server.recurring_availability import _owner
 
 router = APIRouter(prefix="/api/capacity/weeks", tags=["planning"])
 
@@ -67,8 +68,9 @@ class ProposalResponse(BaseModel):
 
 
 @router.post("/{week_start}/proposals", response_model=ProposalResponse)
-def propose(week_start: date, payload: SelectionRequest,
+def propose(week_start: date, payload: SelectionRequest, request: Request,
             uow: UnitOfWork = Depends(get_uow)) -> ProposalResponse:
     return ProposalResponse.from_domain(invoke(
-        lambda: propose_week(uow, week_start, payload.task_ids)
+        lambda: propose_week(uow, week_start, payload.task_ids,
+                             payload.timezone_name, _owner(request))
     ))

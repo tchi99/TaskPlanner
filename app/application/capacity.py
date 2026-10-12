@@ -6,6 +6,7 @@ from typing import Sequence
 from uuid import UUID
 
 from app.application.uow import UnitOfWork
+from app.application.planning_availability import effective_week
 from app.domain.capacity import (
     AvailabilityBlock,
     WeeklyCapacityEvaluation,
@@ -35,6 +36,7 @@ def add_block(
         work_type_id=work_type_id,
     )
     with uow:
+        uow.lock_planning()
         if work_type_id is not None and uow.work_types.get(work_type_id) is None:
             raise ValueError("work type does not exist")
         validate_blocks(week_start, (*uow.availability.list_week(week_start), block))
@@ -46,6 +48,7 @@ def add_block(
 def delete_block(uow: UnitOfWork, week_start: date, block_id: UUID) -> None:
     validate_week_start(week_start)
     with uow:
+        uow.lock_planning()
         block = uow.availability.get(block_id)
         if block is None or block.week_start != week_start:
             raise LookupError("availability block not found")
@@ -59,13 +62,14 @@ def delete_block(uow: UnitOfWork, week_start: date, block_id: UUID) -> None:
 
 
 def evaluate_selection(
-    uow: UnitOfWork, week_start: date, task_ids: Sequence[UUID]
+    uow: UnitOfWork, week_start: date, task_ids: Sequence[UUID],
+    timezone_name: str = "UTC", owner_id: str = "urn:taskplanner:local",
 ) -> WeeklyCapacityEvaluation:
     validate_week_start(week_start)
     if len(task_ids) != len(set(task_ids)):
         raise ValueError("candidate tasks must be unique")
     with uow:
-        blocks = uow.availability.list_week(week_start)
+        blocks = effective_week(uow, owner_id, week_start, timezone_name).blocks
         aggregates = []
         for task_id in task_ids:
             aggregate = uow.tasks.get_aggregate(task_id)
