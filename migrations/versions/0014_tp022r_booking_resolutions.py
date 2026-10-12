@@ -62,6 +62,12 @@ def downgrade() -> None:
         with op.batch_alter_table("confirmed_time_blocks") as batch:
             batch.drop_constraint("ck_confirmed_time_blocks_revision", type_="check")
             batch.drop_constraint("ck_confirmed_time_blocks_status", type_="check")
-    with op.batch_alter_table("confirmed_time_blocks") as batch:
-        batch.drop_column("revision")
-        batch.drop_column("status")
+    if bind.dialect.name == "sqlite":
+        # Like TP-022C, preserve historical rows without a table rebuild.
+        # A batch copy would revalidate unrelated legacy foreign keys.
+        op.execute(sa.text("ALTER TABLE confirmed_time_blocks DROP COLUMN revision"))
+        op.execute(sa.text("ALTER TABLE confirmed_time_blocks DROP COLUMN status"))
+    else:
+        with op.batch_alter_table("confirmed_time_blocks") as batch:
+            batch.drop_column("revision")
+            batch.drop_column("status")

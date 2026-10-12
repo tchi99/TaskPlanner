@@ -117,8 +117,8 @@ def snapshot(client, url, decision, revision=1, **kwargs):
 
 def apply(client, url, request, preview, *, decision_id=None):
     return client.post(url + "/confirm", json={
-        **request, "fingerprint": preview["fingerprint"],
-        "confirmed": True, "decision_id": str(decision_id or uuid4()),
+        "confirmed": True, **request, "fingerprint": preview["fingerprint"],
+        "decision_id": str(decision_id or uuid4()),
     })
 
 
