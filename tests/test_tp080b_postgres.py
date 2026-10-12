@@ -76,7 +76,7 @@ def test_secure_connection_policy_and_fresh_schema(postgres_engine):
     assert "tasks" not in inspect(postgres_engine).get_table_names(schema="public")
     with postgres_engine.connect() as connection:
         assert connection.scalar(text("SELECT current_schema()")) == "taskplanner"
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0010_tp080b"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0011_tp022a"
         assert connection.scalar(text(
             "SELECT pg_get_serial_sequence('taskplanner.history_events', 'sequence')"
         ))
