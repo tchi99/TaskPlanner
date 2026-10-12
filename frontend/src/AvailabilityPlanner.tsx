@@ -128,6 +128,8 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
   const [projection, setProjection] = useState<Projection | null>(null);
   const [verified, setVerified] = useState<Verified | null>(null);
   const [verifiedError, setVerifiedError] = useState("");
+  const [commitments, setCommitments] = useState<{ calendar_id: string; event_id: string; title: string; starts_at: string; ends_at: string }[]>([]);
+  const [commitmentsError, setCommitmentsError] = useState("");
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [ruleDraft, setRuleDraft] = useState(initialRule);
   const [editingRule, setEditingRule] = useState<Rule | null>(null);
@@ -174,6 +176,7 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
   useEffect(() => {
     let active = true;
     setLoading(true); setError(""); setVerified(null); setVerifiedError("");
+    setCommitments([]); setCommitmentsError("");
     setExceptionPreview(null); setResolutionPreview(null);
     void reload().catch((err: unknown) => {
       if (active) setError(err instanceof Error ? err.message : "Lecture impossible.");
@@ -186,7 +189,7 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
     try {
       await action();
       await reload();
-      setVerified(null);
+      setVerified(null); setCommitments([]);
       setNotice(success);
     } catch (err: unknown) {
       setExceptionPreview(null); setResolutionPreview(null);
@@ -321,10 +324,18 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
   }
 
   async function loadVerified() {
-    setVerified(null); setVerifiedError("");
+    setVerified(null); setVerifiedError(""); setCommitments([]); setCommitmentsError("");
     try {
-      setVerified(await api<Verified>("/api/availability/verified?week_start=" +
-        week + "&timezone_name=" + encodeURIComponent(zone)));
+      const verifiedResult = await api<Verified>("/api/availability/verified?week_start=" +
+        week + "&timezone_name=" + encodeURIComponent(zone));
+      setVerified(verifiedResult);
+      try {
+        const result = await api<{ commitments: typeof commitments }>(
+          "/api/capacity/weeks/" + week + "/calendar?timezone_name=" + encodeURIComponent(zone));
+        setCommitments(result.commitments);
+      } catch {
+        setCommitmentsError("Liste des événements Google indisponible; le contrôle de capacité reste distinct.");
+      }
     } catch (err: unknown) {
       setVerifiedError((err instanceof Error ? err.message : "Vérification indisponible.") +
         " La capacité déclarée n'est pas du temps libre confirmé.");
@@ -505,6 +516,12 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
                 {label(row.work_type_id)} : {row.free_minutes}/{row.declared_minutes} min
               </span>)}</p>}
             {verifiedError && <p role="alert" className="error">{verifiedError}</p>}
+            {verified && <div className="availabilityExternal"><h4>Engagements Google occupés (lecture seule)</h4>
+              {commitmentsError && <p role="status">{commitmentsError}</p>}
+              {!commitmentsError && commitments.length === 0 && <p className="empty">Aucun engagement occupé trouvé.</p>}
+              <ul>{commitments.map((item) => <li key={item.calendar_id + ":" + item.event_id}>
+                {item.title} · {describe(item.starts_at, item.ends_at)}</li>)}</ul>
+            </div>}
             <div className="availabilityWeekGrid" aria-label="Grille hebdomadaire réelle">
               {weekdays.map((day, index) => {
                 const date = shiftDay(week, index);
@@ -613,6 +630,11 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
           </section>
           <section className="availabilityCard">
             <h3>Conflits et réservations</h3>
+            <h4>Réservations locales confirmées</h4>
+            {bookings.length === 0 ? <p className="empty">Aucune réservation locale sur la semaine.</p> :
+              <ul className="availabilityRows">{bookings.map((booking) => <li key={booking.id}>
+                <span>{shortId(booking.id)} · {describe(booking.starts_at, booking.ends_at)} · {label(booking.work_type_id)} · {booking.status}</span>
+              </li>)}</ul>}
             {projection?.issues.filter((issue) => !issue.booking_id).map((issue, index) =>
               <p key={index} className="availabilityDiagnostic">{issue.code} · {describe(issue.starts_at, issue.ends_at)} · {issue.sources.join(", ")}</p>)}
             {projection?.expansion_issues.map((issue, index) =>
