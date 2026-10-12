@@ -13,13 +13,23 @@ depends_on = None
 
 
 def upgrade() -> None:
-    with op.batch_alter_table("confirmed_time_blocks") as batch:
-        batch.add_column(sa.Column(
-            "transferred_from_work_type_id", sa.String(36),
-            sa.ForeignKey("work_types.id", ondelete="RESTRICT",
-                          name="fk_confirmed_time_blocks_transfer_work_type"),
-            nullable=True,
+    if op.get_bind().dialect.name == "sqlite":
+        # SQLite supports adding a nullable REFERENCES column in-place.
+        # Rebuilding this legacy table would revalidate unrelated old task FKs.
+        op.execute(sa.text(
+            "ALTER TABLE confirmed_time_blocks "
+            "ADD COLUMN transferred_from_work_type_id VARCHAR(36) "
+            "CONSTRAINT fk_confirmed_time_blocks_transfer_work_type "
+            "REFERENCES work_types(id) ON DELETE RESTRICT"
         ))
+    else:
+        with op.batch_alter_table("confirmed_time_blocks") as batch:
+            batch.add_column(sa.Column(
+                "transferred_from_work_type_id", sa.String(36),
+                sa.ForeignKey("work_types.id", ondelete="RESTRICT",
+                              name="fk_confirmed_time_blocks_transfer_work_type"),
+                nullable=True,
+            ))
 
 
 def downgrade() -> None:
@@ -29,5 +39,12 @@ def downgrade() -> None:
         "WHERE transferred_from_work_type_id IS NOT NULL LIMIT 1"
     )).first():
         raise RuntimeError("cannot downgrade: accepted PREFERRED transfers exist")
-    with op.batch_alter_table("confirmed_time_blocks") as batch:
-        batch.drop_column("transferred_from_work_type_id")
+    if bind.dialect.name == "sqlite":
+        # In-place DROP likewise preserves legacy rows without a table copy.
+        op.execute(sa.text(
+            "ALTER TABLE confirmed_time_blocks "
+            "DROP COLUMN transferred_from_work_type_id"
+        ))
+    else:
+        with op.batch_alter_table("confirmed_time_blocks") as batch:
+            batch.drop_column("transferred_from_work_type_id")
