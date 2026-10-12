@@ -70,7 +70,8 @@ def postgres_engine():
 
 def test_secure_connection_policy_and_fresh_schema(postgres_engine):
     assert {"projects", "tasks", "task_segments", "history_events",
-            "work_sessions", "weekly_decisions", "daily_reviews"} <= set(
+            "work_sessions", "weekly_decisions", "daily_reviews",
+            "recurring_availability_rules", "recurring_availability_revisions"} <= set(
                 inspect(postgres_engine).get_table_names(schema="taskplanner")
             )
     assert "tasks" not in inspect(postgres_engine).get_table_names(schema="public")
