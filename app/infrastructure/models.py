@@ -242,7 +242,7 @@ class HistoryEventRecord(Base):
             "sequence",
         ),
         CheckConstraint(
-            "entity_type IN ('TASK','SEGMENT','AVAILABILITY_RULE')",
+            "entity_type IN ('TASK','SEGMENT','AVAILABILITY_RULE','AVAILABILITY_EXCEPTION')",
             name="ck_history_events_entity_type",
         ),
         CheckConstraint(
@@ -391,3 +391,41 @@ class RecurringAvailabilityRevisionRecord(Base):
     start_fold: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     end_fold: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     recorded_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class AvailabilityExceptionRecord(Base):
+    """Current exception snapshot; every mutation also appends a history event."""
+    __tablename__ = "availability_exceptions"
+    __table_args__ = (
+        Index("ix_availability_exceptions_owner", "owner_id"),
+        UniqueConstraint("owner_id", "rule_id", "original_local_date",
+                         name="uq_availability_exception_target"),
+        CheckConstraint("version > 0", name="ck_availability_exceptions_version"),
+        CheckConstraint("action IN ('CANCEL','REPLACE','ADD','UNAVAILABLE')",
+                        name="ck_availability_exceptions_action"),
+        CheckConstraint("mode IS NULL OR mode IN ('PROTECTED','PREFERRED')",
+                        name="ck_availability_exceptions_mode"),
+        CheckConstraint("kind IS NULL OR kind IN ('GENERAL','CATEGORIZED')",
+                        name="ck_availability_exceptions_kind"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    version: Mapped[int] = mapped_column(Integer(), nullable=False)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    rule_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("recurring_availability_rules.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    original_local_date: Mapped[date | None] = mapped_column(Date(), nullable=True)
+    starts_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    ends_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    timezone_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    work_type_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("work_types.id", ondelete="RESTRICT"), nullable=True,
+    )
+    mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    enabled: Mapped[bool] = mapped_column(nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
