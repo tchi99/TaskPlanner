@@ -71,13 +71,14 @@ def postgres_engine():
 def test_secure_connection_policy_and_fresh_schema(postgres_engine):
     assert {"projects", "tasks", "task_segments", "history_events",
             "work_sessions", "weekly_decisions", "daily_reviews",
-            "recurring_availability_rules", "recurring_availability_revisions"} <= set(
+            "recurring_availability_rules", "recurring_availability_revisions",
+            "availability_exceptions"} <= set(
                 inspect(postgres_engine).get_table_names(schema="taskplanner")
             )
     assert "tasks" not in inspect(postgres_engine).get_table_names(schema="public")
     with postgres_engine.connect() as connection:
         assert connection.scalar(text("SELECT current_schema()")) == "taskplanner"
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0011_tp022a"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0012_tp022b"
         assert connection.scalar(text(
             "SELECT pg_get_serial_sequence('taskplanner.history_events', 'sequence')"
         ))
@@ -263,3 +264,54 @@ def test_tp022a_recurring_rules_round_trip_in_private_postgres(postgres_engine):
             "SELECT COUNT(*) FROM history_events "
             "WHERE entity_type = 'AVAILABILITY_RULE' AND entity_id = :id"
         ), {"id": str(value.id)}) == 2
+
+
+
+def test_tp022b_exception_preview_persistence_and_audit_in_postgres(postgres_engine):
+    """Exercise the new exception table and offset-preserving persistence on PG."""
+    from datetime import time
+    from zoneinfo import ZoneInfo
+    from app.domain.availability_exceptions import ExceptionAction
+    from app.domain.recurring_availability import RuleKind
+    from app.application.effective_availability import (
+        get_exception, preview_exception, read_effective, save_exception,
+    )
+
+    owner = "tp-022b-pg-test"
+    factory = sessionmaker(bind=postgres_engine, autoflush=False, expire_on_commit=False)
+    zone = ZoneInfo("America/Toronto")
+    tomorrow_week = datetime.now(zone).date() + timedelta(days=14)
+    fields = {
+        "action": ExceptionAction.ADD,
+        "timezone_name": "America/Toronto",
+        "starts_at": datetime.combine(tomorrow_week, time(9), zone),
+        "ends_at": datetime.combine(tomorrow_week, time(10), zone),
+        "kind": RuleKind.GENERAL,
+    }
+    token, projected, _ = preview_exception(
+        SqlAlchemyUnitOfWork(factory), owner, fields,
+    )
+    assert projected.declared_minutes == 60
+    made = save_exception(SqlAlchemyUnitOfWork(factory), owner, fields, token, False)
+    fetched = get_exception(SqlAlchemyUnitOfWork(factory), owner, made.id)
+    assert fetched.version == 1 and fetched.starts_at.utcoffset() == fields["starts_at"].utcoffset()
+    current = read_effective(SqlAlchemyUnitOfWork(factory), owner,
+                             tomorrow_week, tomorrow_week + timedelta(days=1),
+                             "America/Toronto")
+    assert current.declared_minutes == 60
+    disabled = {**fields, "enabled": False}
+    second, _, _ = preview_exception(
+        SqlAlchemyUnitOfWork(factory), owner, disabled,
+        exception_id=made.id, expected_version=1,
+    )
+    updated = save_exception(SqlAlchemyUnitOfWork(factory), owner, disabled,
+                             second, False, exception_id=made.id, expected_version=1)
+    assert updated.version == 2
+    assert read_effective(SqlAlchemyUnitOfWork(factory), owner,
+                          tomorrow_week, tomorrow_week + timedelta(days=1),
+                          "America/Toronto").declared_minutes == 0
+    with postgres_engine.connect() as connection:
+        assert connection.scalar(text(
+            "SELECT COUNT(*) FROM history_events "
+            "WHERE entity_type = 'AVAILABILITY_EXCEPTION' AND entity_id = :id"
+        ), {"id": str(made.id)}) == 2

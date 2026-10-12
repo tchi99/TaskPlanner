@@ -1,6 +1,6 @@
 """TP-022A use cases: series edits are future-only, explicit and revisioned."""
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
@@ -88,6 +88,23 @@ def revise_rule(
         if revision.effective_from <= current.revisions[-1].effective_from:
             raise ValueError("new revision must start after the previous effective date")
         _check_work_type(uow, revision)
+        proposed = RecurringAvailabilityRule(
+            current.id, current.owner_id, current.version + 1,
+            (*current.revisions, revision),
+        )
+        # Do not silently orphan a future exception when changing the series.
+        for exc in uow.availability_exceptions.list_owner(owner_id):
+            if (exc.enabled and exc.rule_id == rule_id and
+                    exc.original_local_date is not None and
+                    exc.original_local_date >= revision.effective_from):
+                values, problems = expand_rules(
+                    (proposed,), exc.original_local_date,
+                    exc.original_local_date + timedelta(days=1),
+                )
+                if not values or problems:
+                    raise RuleConflict(
+                        "series edit would orphan a future exception; resolve it explicitly"
+                    )
         uow.recurring_availability.append_revision(revision, expected_version=expected_version)
         uow.history.append(_audit(rule_id, revision.number, revision.effective_from,
                                   "AVAILABILITY_RULE_DISABLED" if not revision.enabled
