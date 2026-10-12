@@ -104,6 +104,12 @@ def project_effective(
     for value in active:
         if value.action is ExceptionAction.CANCEL:
             continue
+        if value.action is ExceptionAction.REPLACE:
+            source = next((r for r in rules if r.id == value.rule_id), None)
+            if source is None or not expand_rules(
+                    (source,), value.original_local_date,
+                    value.original_local_date + timedelta(days=1))[0]:
+                continue  # Orphaned replacement cannot become an implicit addition.
         interval = value.active_interval()
         assert interval is not None
         category = ("UNAVAILABLE" if value.action is ExceptionAction.UNAVAILABLE
@@ -174,8 +180,7 @@ def project_effective(
                      exc.active_interval()[0] < hi and exc.active_interval()[1] > lo)):
                 issues.append(EffectiveIssue("ORPHANED_EXCEPTION", lo, hi,
                                              (f"EXCEPTION:{exc.id}",)))
-            # Remove capacity accidentally added by a moved orphan. A
-            # proposed series edit is checked separately by the use case.
+            # Orphaned replacements were excluded from declaration spans above.
     for booking in confirmed:
         start, end = _utc(booking.starts_at), _utc(booking.ends_at)
         if start >= hi or end <= lo:

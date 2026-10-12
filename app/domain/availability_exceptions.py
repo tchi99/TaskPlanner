@@ -44,7 +44,8 @@ class AvailabilityException:
         except (ZoneInfoNotFoundError, TypeError, ValueError) as exc:
             raise ValueError("unknown IANA timezone") from exc
         targeted = self.action in (ExceptionAction.CANCEL, ExceptionAction.REPLACE)
-        if targeted != (self.rule_id is not None and self.original_local_date is not None):
+        if (targeted and (self.rule_id is None or self.original_local_date is None)) or (
+                not targeted and (self.rule_id is not None or self.original_local_date is not None)):
             raise ValueError("CANCEL/REPLACE require an original occurrence; ADD/UNAVAILABLE must not target a rule")
         if self.action is ExceptionAction.CANCEL:
             if any(value is not None for value in
