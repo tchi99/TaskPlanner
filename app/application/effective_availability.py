@@ -114,6 +114,11 @@ def _preview_loaded(uow: UnitOfWork, owner_id: str, proposed: AvailabilityExcept
     previous = next((e for e in exceptions if e.id == old_id), None)
     if old_id is not None and previous is None:
         raise LookupError("availability exception not found")
+    if proposed.rule_id is not None and any(
+        e.id != old_id and e.rule_id == proposed.rule_id
+        and e.original_local_date == proposed.original_local_date for e in exceptions
+    ):
+        raise RuleConflict("another exception already targets this occurrence")
     if previous is not None and previous.version + 1 != proposed.version:
         raise RuleConflict("availability exception changed; reload and preview again")
     # For newly proposed records, the preview uses the deterministic sentinel

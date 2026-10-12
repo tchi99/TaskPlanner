@@ -156,3 +156,27 @@ def modify_exception(
         payload.acknowledge_conflicts, exception_id=exception_id,
         expected_version=payload.expected_version,
     )))
+
+
+class DisableRequest(BaseModel):
+    expected_version: int = Field(ge=1)
+    expected_fingerprint: str = Field(min_length=64, max_length=64)
+    acknowledge_conflicts: bool = False
+
+
+@router.delete("/exceptions/{exception_id}", response_model=ExceptionResponse)
+def disable_exception(
+    exception_id: UUID, request: Request, payload: DisableRequest,
+    uow: UnitOfWork = Depends(get_uow),
+):
+    owner = _owner(request)
+    current = _run(lambda: get_exception(uow, owner, exception_id))
+    fields = {
+        key: getattr(current, key) for key in ExceptionSettings.model_fields
+    }
+    fields["enabled"] = False
+    return ExceptionResponse.from_domain(_run(lambda: save_exception(
+        uow, owner, fields, payload.expected_fingerprint,
+        payload.acknowledge_conflicts, exception_id=exception_id,
+        expected_version=payload.expected_version,
+    )))
