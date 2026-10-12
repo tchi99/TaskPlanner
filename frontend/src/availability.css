@@ -1,0 +1,64 @@
+.availabilityPanel { display: grid; gap: 16px; min-width: 0; }
+.availabilityHead { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px; }
+.availabilityHead h2 { margin: 0; font-size: 1.45rem; }
+.availabilityHead p { color: var(--tp-muted); margin: 6px 0 0; line-height: 1.5; }
+.availabilitySwitch { display: flex; flex-wrap: wrap; gap: 5px; border: 1px solid #d7e3ec; border-radius: 12px; padding: 4px; background: white; }
+.workspaceFrame .availabilitySwitch button { min-height: 36px; background: transparent; color: #334155; padding: 6px 11px; font-size: .83rem; }
+.workspaceFrame .availabilitySwitch button.selected { background: #d9efed; color: #105c63; }
+.availabilityToolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 9px; padding: 10px 14px; background: #fff; border: 1px solid #e2e8f0; border-radius: 13px; }
+.availabilityToolbar label { margin: 0; min-width: 130px; flex: 1; }
+.availabilityToolbar input { min-height: 37px; width: 100%; }
+.workspaceFrame .availabilityToolbar button { padding: 9px 13px; min-height: 37px; }
+.availabilityStack { display: grid; gap: 17px; min-width: 0; }
+.availabilityCard { background: white; border: 1px solid #e0e8f0; border-radius: 16px; padding: 20px; box-shadow: 0 5px 19px rgba(15, 23, 42, .035); min-width: 0; }
+.availabilityCard h3 { margin: 0 0 9px; font-size: 1.12rem; }
+.availabilityCard h4 { margin: 13px 0 5px; font-size: .96rem; }
+.availabilityCard p { line-height: 1.55; }
+.availabilityCardHeading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+.availabilityCardHeading button { padding: 10px 12px; }
+.availabilityRows { margin: 12px 0; padding: 0; }
+.availabilityRows > li { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 13px 0; border-top: 1px solid #e5ebf1; }
+.availabilityRows > li > div:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.availabilityRows p { margin: 5px 0; }
+.availabilityRows small { color: #64748b; }
+.availabilityMode { font-size: .73rem; display: inline-block; margin-left: 8px; border-radius: 8px; padding: 3px 7px; background: #edf2f7; }
+.availabilityMode.PROTECTED, .availabilitySlot.PROTECTED { background: #ffeddf; border-color: #efb582; color: #78421c; }
+.availabilityMode.PREFERRED, .availabilitySlot.PREFERRED { background: #e3f2f6; border-color: #a0cbd5; color: #195e6c; }
+.availabilityActions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.workspaceFrame .availabilityActions button { min-height: 35px; padding: 8px 11px; font-size: .8rem; }
+.workspaceFrame .availabilityActions button + button { background: #eff3f7; color: #273d55; }
+.availabilityForm { padding-top: 10px; }
+.availabilityFields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.availabilityFields label { min-width: 0; }
+.availabilityPanel input, .availabilityPanel select, .availabilityPanel textarea { width: 100%; min-width: 0; padding: 10px; color: #1e293b; border: 1px solid #c8d5e0; border-radius: 9px; background: #fff; font: inherit; }
+.availabilityPanel input[type="checkbox"] { width: auto; flex: none; }
+.availabilityPanel textarea { min-height: 64px; }
+.availabilityDays { display: flex; flex-wrap: wrap; gap: 8px 15px; border: 1px solid #dde6ed; padding: 11px; border-radius: 10px; margin: 17px 0; }
+.availabilityDays label { display: flex; align-items: center; gap: 5px; margin: 0; }
+.availabilityDays legend { font-weight: 700; }
+.availabilityWeekGrid { display: grid; grid-template-columns: repeat(7, minmax(0,1fr)); gap: 8px; margin-top: 18px; }
+.availabilityDay { background: #f7fafc; border: 1px solid #e0e8f0; padding: 8px; border-radius: 11px; min-width: 0; }
+.availabilityDay h4 { margin: 2px 0 9px; padding-bottom: 7px; border-bottom: 1px solid #d8e1e9; }
+.availabilityDay h4 small { font-weight: 400; display: block; margin-top: 3px; }
+.availabilitySlot { display: grid; gap: 4px; padding: 9px 7px; margin-bottom: 7px; border: 1px solid #dde4ef; background: #ebf0f8; color: #2c4464; border-radius: 8px; font-size: .75rem; overflow-wrap: anywhere; }
+.availabilitySlot small { font-size: .69rem; }
+.availabilityOccurrence { margin: 8px 0; padding-top: 6px; border-top: 1px dashed #cbd5e1; font-size: .7rem; }
+.availabilityOccurrence .availabilityActions { margin-top: 5px; }
+.workspaceFrame .availabilityOccurrence button { background: white; color: #234b5b; border: 1px solid #bacbd5; padding: 5px; min-height: 30px; }
+.availabilityBucket { display: inline-block; padding: 4px 7px; background: #eff7f6; border-radius: 7px; margin: 3px; font-size: .82rem; }
+.availabilityPreview { border: 1px solid #8bbdbd; background: #f0faf8; border-radius: 11px; padding: 14px; margin-top: 16px; }
+.availabilityPreview ul { margin: 8px 0 14px; }
+.availabilityPreview li { padding: 6px 0; }
+.availabilityPreview button { padding: 10px 13px; }
+.availabilityDiagnostic { border-left: 3px solid #e9a26e; padding: 6px 9px; background: #fff8f0; overflow-wrap: anywhere; }
+.availabilityNotice { color: #196a5a; font-weight: 600; }
+@media (max-width: 1100px) { .availabilityWeekGrid { grid-template-columns: repeat(4,minmax(0,1fr)); } }
+@media (max-width: 700px) {
+  .availabilityFields { grid-template-columns: 1fr; }
+  .availabilityWeekGrid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .availabilityCard { padding: 13px; }
+  .availabilityHead, .availabilityHead > div { width: 100%; }
+  .availabilitySwitch { width: 100%; }
+  .availabilitySwitch button { flex: 1; }
+}
+@media (max-width: 420px) { .availabilityWeekGrid { grid-template-columns: 1fr; } }

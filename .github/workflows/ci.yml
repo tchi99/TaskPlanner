@@ -32,6 +32,27 @@ jobs:
       - working-directory: frontend
         run: npm run build
 
+
+  frontend-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - working-directory: frontend
+        run: npm install --no-audit --no-fund
+      - working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - working-directory: frontend
+        run: npm run test:e2e
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tp022d-playwright-traces
+          path: frontend/test-results/
+          if-no-files-found: ignore
+
   postgres:
     runs-on: ubuntu-latest
     services:
