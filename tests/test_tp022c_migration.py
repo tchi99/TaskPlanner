@@ -9,9 +9,9 @@ from uuid import uuid4
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def migrate(path, target):
+def migrate(path, target, *, action="upgrade"):
     subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", target],
+        [sys.executable, "-m", "alembic", action, target],
         cwd=ROOT, check=True, capture_output=True, text=True,
         env={**os.environ, "TASKPLANNER_DATABASE_URL": f"sqlite:///{path}"},
     )
@@ -49,7 +49,7 @@ def test_accepted_transfer_column_does_not_rewrite_legacy_booking(tmp_path):
             and row[6] == "RESTRICT"
             for row in constraints
         )
-    migrate(db_path, "0012_tp022b")
+    migrate(db_path, "0012_tp022b", action="downgrade")
     with sqlite3.connect(db_path) as connection:
         assert "transferred_from_work_type_id" not in {
             row[1] for row in connection.execute(
