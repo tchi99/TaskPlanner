@@ -154,15 +154,13 @@ def expand_rules(
     for rule in rules:
         for i in range(days):
             day = from_date + timedelta(days=i)
-            applicable = [
-                rev for rev in rule.revisions
-                if rev.effective_from <= day and
-                (rev.valid_until is None or day < rev.valid_until)
-            ]
+            applicable = [rev for rev in rule.revisions if rev.effective_from <= day]
             if not applicable:
                 continue
+            # Expiry of the newest revision never resurrects an older schedule.
             rev = applicable[-1]
-            if not rev.enabled or day.weekday() not in rev.days_of_week:
+            if ((rev.valid_until is not None and day >= rev.valid_until)
+                    or not rev.enabled or day.weekday() not in rev.days_of_week):
                 continue
             zone = ZoneInfo(rev.timezone_name)
             try:
