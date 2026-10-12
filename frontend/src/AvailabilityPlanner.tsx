@@ -121,6 +121,7 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
   const [tab, setTab] = useState<"rules" | "real">("rules");
   const [week, setWeek] = useState(() => weekOf(dateISO(new Date())));
   const [zone, setZone] = useState(browserZone);
+  const [zoneInput, setZoneInput] = useState(browserZone);
   const [rules, setRules] = useState<Rule[]>([]);
   const [occurrences, setOccurrences] = useState<Occurrence[]>([]);
   const [exceptions, setExceptions] = useState<Exception[]>([]);
@@ -404,8 +405,12 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
         <button type="button" onClick={() => setWeek(shiftDay(week, -7))} aria-label="Semaine précédente">←</button>
         <button type="button" onClick={() => setWeek(shiftDay(week, 7))} aria-label="Semaine suivante">→</button>
         <label>Fuseau de lecture
-          <input value={zone} onChange={(event) => setZone(event.target.value)} aria-label="Fuseau horaire IANA" />
+          <input value={zoneInput} onChange={(event) => setZoneInput(event.target.value)} aria-label="Fuseau horaire IANA" />
         </label>
+        <button type="button" onClick={() => {
+          try { new Intl.DateTimeFormat("fr-CA", { timeZone: zoneInput }); setZone(zoneInput); setError(""); }
+          catch { setError("Fuseau IANA invalide."); }
+        }}>Appliquer le fuseau</button>
         <button type="button" onClick={() => void reload().catch((err: unknown) =>
           setError(err instanceof Error ? err.message : "Actualisation impossible."))}>Actualiser</button>
       </div>
