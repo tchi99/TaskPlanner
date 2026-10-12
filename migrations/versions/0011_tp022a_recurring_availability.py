@@ -21,6 +21,7 @@ def _history_constraint(expr: str) -> None:
     with op.batch_alter_table(
         "history_events",
         recreate="always" if op.get_bind().dialect.name == "sqlite" else "auto",
+        table_kwargs={"sqlite_autoincrement": True},
     ) as batch:
         batch.drop_constraint("ck_history_events_entity_type", type_="check")
         batch.create_check_constraint("ck_history_events_entity_type", expr)
