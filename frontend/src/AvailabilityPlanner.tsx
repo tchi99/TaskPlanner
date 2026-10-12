@@ -36,7 +36,7 @@ type Exception = {
   mode: Mode | null; enabled: boolean; reason: string | null;
 };
 type Booking = {
-  id: string; task_id: string; work_type_id: string | null; starts_at: string;
+  id: string; task_id: string; segment_id?: string | null; work_type_id: string | null; starts_at: string;
   ends_at: string; status: string; revision: number;
 };
 type Verified = {
@@ -72,8 +72,8 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await apiFetch(path, options);
   if (!response.ok) {
     const data = await response.json().catch(() => null);
-    const detail = typeof data?.detail === "string" ? data.detail :
-      response.status === 409 ? "Les données ont changé. Actualise et recommence l'aperçu." :
+    const detail = response.status === 409 ? "Réservation ou aperçu périmé (409). Actualise et recommence l’aperçu." :
+      typeof data?.detail === "string" ? data.detail :
       "Opération refusée (" + response.status + ").";
     throw new Error(detail);
   }
@@ -139,12 +139,12 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
     snapshot: ExceptionPreview; payload: object; version: number | null; id: string | null;
   } | null>(null);
   const [resolutionId, setResolutionId] = useState("");
-  const [resolutionDecision, setResolutionDecision] = useState<ResolutionDecision>("KEEP");
+  const [resolutionDecision, setResolutionDecision] = useState<ResolutionDecision>("CANCEL");
   const [resolutionReason, setResolutionReason] = useState("");
   const [moveStart, setMoveStart] = useState("");
   const [moveEnd, setMoveEnd] = useState("");
   const [resolutionPreview, setResolutionPreview] = useState<{
-    bookingId: string; payload: object; snapshot: ResolutionPreview;
+    bookingId: string; weekStart: string; booking: Booking; payload: object; snapshot: ResolutionPreview;
   } | null>(null);
   const [history, setHistory] = useState<{ event_type: string; occurred_at: string }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -177,7 +177,7 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
     let active = true;
     setLoading(true); setError(""); setVerified(null); setVerifiedError("");
     setCommitments([]); setCommitmentsError("");
-    setExceptionPreview(null); setResolutionPreview(null);
+    setExceptionPreview(null); setResolutionPreview(null); setResolutionId(""); setHistory([]);
     void reload().catch((err: unknown) => {
       if (active) setError(err instanceof Error ? err.message : "Lecture impossible.");
     }).finally(() => { if (active) setLoading(false); });
@@ -346,9 +346,17 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
     .filter((issue, index, source) => issue.booking_id && issue.state === "OPEN" &&
       source.findIndex((other) => other.booking_id === issue.booking_id &&
         other.code === issue.code && other.starts_at === issue.starts_at) === index);
-  const conflictBookings = bookings.filter((booking) =>
+  const activeBookings = bookings.filter((booking) => booking.status === "CONFIRMED" &&
+    dayInZone(booking.starts_at, zone) >= week && dayInZone(booking.starts_at, zone) < shiftDay(week, 7));
+  const conflictBookings = activeBookings.filter((booking) =>
     activeIssues.some((issue) => issue.booking_id === booking.id));
-  const selectedBooking = conflictBookings.find((booking) => booking.id === resolutionId);
+  const selectedBooking = activeBookings.find((booking) => booking.id === resolutionId);
+  const selectedHasConflict = !!selectedBooking && conflictBookings.some((item) => item.id === selectedBooking.id);
+  function selectBooking(bookingId: string, decision: ResolutionDecision = "CANCEL") {
+    setResolutionId(bookingId); setResolutionDecision(decision);
+    setResolutionReason(decision === "CANCEL" ? "Annulation manuelle" : "");
+    setResolutionPreview(null); setHistory([]);
+  }
   function resolutionPayload(booking: Booking) {
     if (resolutionDecision === "MOVE" && zone !== browserZone) {
       throw new Error("Le fuseau horaire de saisie doit correspondre à celui du navigateur.");
@@ -371,15 +379,18 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
         "/time-blocks/" + selectedBooking.id + "/resolution/preview", {
         method: "POST", headers, body: JSON.stringify(payload),
       });
-      setResolutionPreview({ bookingId: selectedBooking.id, payload, snapshot });
+      setResolutionPreview({ bookingId: selectedBooking.id, weekStart: week,
+        booking: selectedBooking, payload, snapshot });
     } catch (err: unknown) { setError(err instanceof Error ? err.message : "Aperçu de résolution impossible."); }
     finally { setBusy(false); }
   }
   async function confirmResolution() {
-    if (!resolutionPreview || !window.confirm("Confirmer cette décision locale et son audit ?")) return;
+    if (!resolutionPreview || busy || !window.confirm(resolutionPreview.snapshot.decision === "CANCEL" ?
+      "Annuler uniquement la réservation sélectionnée ? La tâche et les règles habituelles restent inchangées; aucun événement Google modifié." :
+      "Confirmer cette décision locale et son audit ?")) return;
     const draft = resolutionPreview;
     await operate(async () => {
-      await api("/api/capacity/weeks/" + week + "/time-blocks/" +
+      await api("/api/capacity/weeks/" + draft.weekStart + "/time-blocks/" +
         draft.bookingId + "/resolution/confirm", {
         method: "POST", headers,
         body: JSON.stringify({
@@ -628,77 +639,101 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
                   " et reconnaître les conflits" : ""}</button>
             </div>}
           </section>
-          <section className="availabilityCard">
-            <h3>Conflits et réservations</h3>
-            <h4>Réservations locales confirmées</h4>
-            {bookings.length === 0 ? <p className="empty">Aucune réservation locale sur la semaine.</p> :
-              <ul className="availabilityRows">{bookings.map((booking) => <li key={booking.id}>
-                <span>{shortId(booking.id)} · {describe(booking.starts_at, booking.ends_at)} · {label(booking.work_type_id)} · {booking.status}</span>
-              </li>)}</ul>}
-            {projection?.issues.filter((issue) => !issue.booking_id).map((issue, index) =>
-              <p key={index} className="availabilityDiagnostic">{issue.code} · {describe(issue.starts_at, issue.ends_at)} · {issue.sources.join(", ")}</p>)}
-            {projection?.expansion_issues.map((issue, index) =>
-              <p key={index} role="status" className="availabilityDiagnostic">Règle {shortId(issue.rule_id)} le {issue.original_local_date} : {issue.reason}</p>)}
-            {activeIssues.length === 0 ? <p className="empty">Aucun conflit ouvert de réservation dans cette semaine.</p> : (
-              <ul className="availabilityRows">{activeIssues.map((issue, index) =>
-                <li key={index}><div><strong>{issue.code} · OPEN</strong>
-                  <p>{describe(issue.starts_at, issue.ends_at)} · réservation {shortId(issue.booking_id || "")}</p>
-                  <small>Origine : {issue.sources.join(", ")}</small></div>
-                  {conflictBookings.some((booking) => booking.id === issue.booking_id) &&
-                    <button type="button" onClick={() => { setResolutionId(issue.booking_id || "");
-                      setResolutionPreview(null); setHistory([]); }}>Résoudre</button>}
-                </li>)}</ul>
-            )}
-            {conflictBookings.length > 0 && <form onSubmit={(event) => void previewResolution(event)}
-              className="availabilityForm">
-              <h4>Décision explicite de réservation</h4>
-              <label>Réservation en conflit<select required value={resolutionId} onChange={(event) => {
-                setResolutionId(event.target.value); setResolutionPreview(null); setHistory([]);
-              }}>
-                <option value="">Choisir une réservation…</option>
-                {conflictBookings.map((booking) => <option key={booking.id} value={booking.id}>
-                  {shortId(booking.id)} · {describe(booking.starts_at, booking.ends_at)}
-                </option>)}
-              </select></label>
-              <div className="availabilityFields">
-                <label>Décision<select value={resolutionDecision} onChange={(event) => {
-                  setResolutionDecision(event.target.value as ResolutionDecision); setResolutionPreview(null);
-                }}>
-                  <option value="KEEP">Conserver temporairement le conflit</option>
-                  <option value="CANCEL">Annuler la réservation locale</option>
-                  <option value="MOVE">Déplacer la réservation locale</option>
-                </select></label>
-                {resolutionDecision === "MOVE" && <>
-                  <label>Nouveau début<input required type="datetime-local" value={moveStart}
-                    onChange={(event) => { setMoveStart(event.target.value); setResolutionPreview(null); }} /></label>
-                  <label>Nouvelle fin<input required type="datetime-local" value={moveEnd}
-                    onChange={(event) => { setMoveEnd(event.target.value); setResolutionPreview(null); }} /></label>
-                </>}
-                <label>Raison de la décision<input required maxLength={500} value={resolutionReason}
-                  onChange={(event) => { setResolutionReason(event.target.value); setResolutionPreview(null); }} /></label>
-              </div>
-              <div className="availabilityActions">
-                <button type="submit" disabled={busy || !selectedBooking}>Prévisualiser la résolution</button>
-                {selectedBooking && <button type="button" onClick={() => void showHistory(selectedBooking.id)}>
-                  Voir l'historique</button>}
-              </div>
-              {history.length > 0 && <ul>{history.map((item, index) =>
-                <li key={index}>{item.event_type} · {new Date(item.occurred_at).toLocaleString()}</li>)}</ul>}
-            </form>}
-            {resolutionPreview && <div className="availabilityPreview" aria-live="polite">
-              <h4>Conséquences proposées — {resolutionPreview.snapshot.decision}</h4>
-              <ul>{resolutionPreview.snapshot.consequences.map((item, index) => <li key={index}>{item}</li>)}</ul>
-              <p>Conflits : {resolutionPreview.snapshot.conflict_codes.join(", ") || "aucun"}.
-                Vérification externe : {resolutionPreview.snapshot.calendar_checked ? "effectuée" : "non requise"}.
-                Aucune écriture Google Calendar.</p>
-              {resolutionPreview.snapshot.replacement && <p>Nouvelle plage : {describe(
-                resolutionPreview.snapshot.replacement.starts_at, resolutionPreview.snapshot.replacement.ends_at)}</p>}
-              <button type="button" disabled={busy} onClick={() => void confirmResolution()}>Confirmer cette décision</button>
-            </div>}
-            <p className="muted">KEEP préserve le conflit OPEN. CANCEL ou MOVE s'applique uniquement à une réservation TaskPlanner après revalidation et consentement explicite. En cas de 409, l'aperçu doit être refait.</p>
-          </section>
+
         </div>
       )}
+
+      {!loading && <section className="availabilityCard" aria-label="Réservations de la semaine">
+        <h3>{tab === "rules" ? "Réservations de la semaine" : "Conflits et réservations"}</h3>
+        <p className="muted">Réservations locales datées de la semaine du {week}. Annuler une réservation
+          ne désactive ni ne révise les règles de l’horaire habituel et ne touche pas aux autres semaines.</p>
+        <h4>Réservations locales confirmées</h4>
+        {activeBookings.length === 0 ? <p className="empty">Aucune réservation locale active sur la semaine.</p> :
+          <ul className="availabilityRows">{activeBookings.map((booking) => <li key={booking.id}>
+            <div><strong>Tâche {shortId(booking.task_id)}{booking.segment_id ?
+              " · segment " + shortId(booking.segment_id) : ""}</strong>
+              <p>{shortId(booking.id)} · {describe(booking.starts_at, booking.ends_at)} · {label(booking.work_type_id)} · {booking.status}</p>
+            </div>
+            <button type="button" disabled={busy}
+              aria-label={`Annuler la réservation ${shortId(booking.id)}`}
+              onClick={() => selectBooking(booking.id)}>Annuler la réservation</button>
+          </li>)}</ul>}
+        {tab === "real" && <>
+          {projection?.issues.filter((issue) => !issue.booking_id).map((issue, index) =>
+            <p key={index} className="availabilityDiagnostic">{issue.code} · {describe(issue.starts_at, issue.ends_at)} · {issue.sources.join(", ")}</p>)}
+          {projection?.expansion_issues.map((issue, index) =>
+            <p key={index} role="status" className="availabilityDiagnostic">Règle {shortId(issue.rule_id)} le {issue.original_local_date} : {issue.reason}</p>)}
+        </>}
+        {activeIssues.length === 0 ? <p className="empty">Aucun conflit ouvert de réservation dans cette semaine.</p> : (
+          <ul className="availabilityRows">{activeIssues.map((issue, index) =>
+            <li key={index}><div><strong>{issue.code} · OPEN</strong>
+              <p>{describe(issue.starts_at, issue.ends_at)} · réservation {shortId(issue.booking_id || "")}</p>
+              <small>Origine : {issue.sources.join(", ")}</small></div>
+              {conflictBookings.some((booking) => booking.id === issue.booking_id) &&
+                <button type="button" disabled={busy} onClick={() => selectBooking(issue.booking_id || "", "KEEP")}>
+                  Résoudre</button>}
+            </li>)}</ul>
+        )}
+        {activeBookings.length > 0 && <form onSubmit={(event) => void previewResolution(event)}
+          className="availabilityForm">
+          <h4>Décision explicite de réservation</h4>
+          <label>{selectedHasConflict ? "Réservation en conflit" : "Réservation locale"}
+            <select required value={resolutionId} onChange={(event) => {
+              const id = event.target.value;
+              selectBooking(id, conflictBookings.some((item) => item.id === id) ? "KEEP" : "CANCEL");
+            }}>
+              <option value="">Choisir une réservation…</option>
+              {activeBookings.map((booking) => <option key={booking.id} value={booking.id}>
+                {shortId(booking.id)} · {describe(booking.starts_at, booking.ends_at)}
+              </option>)}
+            </select></label>
+          <div className="availabilityFields">
+            <label>Décision<select value={resolutionDecision} onChange={(event) => {
+              const next = event.target.value as ResolutionDecision;
+              setResolutionDecision(next); setResolutionPreview(null);
+              if (next === "CANCEL" && !resolutionReason.trim()) setResolutionReason("Annulation manuelle");
+            }}>
+              {selectedHasConflict && <option value="KEEP">Conserver temporairement le conflit</option>}
+              <option value="CANCEL">Annuler la réservation locale</option>
+              <option value="MOVE">Déplacer la réservation locale</option>
+            </select></label>
+            {resolutionDecision === "MOVE" && <>
+              <label>Nouveau début<input required type="datetime-local" value={moveStart}
+                onChange={(event) => { setMoveStart(event.target.value); setResolutionPreview(null); }} /></label>
+              <label>Nouvelle fin<input required type="datetime-local" value={moveEnd}
+                onChange={(event) => { setMoveEnd(event.target.value); setResolutionPreview(null); }} /></label>
+            </>}
+            <label>Raison de la décision<input required maxLength={500} value={resolutionReason}
+              onChange={(event) => { setResolutionReason(event.target.value); setResolutionPreview(null); }} /></label>
+          </div>
+          <div className="availabilityActions">
+            <button type="submit" disabled={busy || !selectedBooking}>Prévisualiser la résolution</button>
+            {selectedBooking && <button type="button" disabled={busy} onClick={() => void showHistory(selectedBooking.id)}>
+              Voir l'historique</button>}
+          </div>
+          {history.length > 0 && <ul>{history.map((item, index) =>
+            <li key={index}>{item.event_type} · {new Date(item.occurred_at).toLocaleString()}</li>)}</ul>}
+        </form>}
+        {resolutionPreview && <div className="availabilityPreview" aria-live="polite">
+          <h4>Conséquences proposées — {resolutionPreview.snapshot.decision}</h4>
+          <p>Réservation {shortId(resolutionPreview.bookingId)} · tâche {shortId(resolutionPreview.booking.task_id)}
+            {resolutionPreview.booking.segment_id ? " · segment " + shortId(resolutionPreview.booking.segment_id) : ""}
+            {" · "}{describe(resolutionPreview.booking.starts_at, resolutionPreview.booking.ends_at)}
+            {" · "}{label(resolutionPreview.booking.work_type_id)}.</p>
+          <ul>{resolutionPreview.snapshot.consequences.map((item, index) => <li key={index}>{item}</li>)}</ul>
+          {resolutionPreview.snapshot.decision === "CANCEL" && <p>Seule cette réservation locale sera annulée.
+            La tâche et son avancement restent inchangés. Les minutes pourront redevenir planifiables uniquement
+            selon les autres disponibilités et contraintes; les règles récurrentes restent intactes.</p>}
+          <p>Conflits : {resolutionPreview.snapshot.conflict_codes.join(", ") || "aucun"}.
+            Vérification externe : {resolutionPreview.snapshot.calendar_checked ? "effectuée" : "non requise"}.
+            Aucun événement Google Calendar modifié.</p>
+          {resolutionPreview.snapshot.replacement && <p>Nouvelle plage : {describe(
+            resolutionPreview.snapshot.replacement.starts_at, resolutionPreview.snapshot.replacement.ends_at)}</p>}
+          <button type="button" disabled={busy} onClick={() => void confirmResolution()}>Confirmer cette décision</button>
+          <button type="button" disabled={busy} onClick={() => setResolutionPreview(null)}>Garder la réservation</button>
+        </div>}
+        <p className="muted">KEEP est réservé aux conflits ouverts. CANCEL ou MOVE s'applique uniquement à une réservation TaskPlanner après revalidation et consentement explicite. En cas de 409, refaire l'aperçu.</p>
+      </section>}
     </section>
   );
 }

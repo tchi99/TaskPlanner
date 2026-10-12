@@ -414,6 +414,10 @@ export function WeeklyCapacity({
             key={weekStart + ":" + selected.join(",") + ":" + reloadKey}
             weekStart={weekStart}
             taskIds={selected.filter((id) => eligible.some((task) => task.id === id))}
+            taskNames={Object.fromEntries(tasks.map((task) => [task.id, task.title]))}
+            workTypeNames={Object.fromEntries(workTypes.map((type) => [type.id, type.name]))}
+            onBookingChanged={() => { setEvaluation(null); setProposal(null); setArbitration(null);
+              setCalendar(null); setCalendarError(""); }}
           />
         </>
       )}

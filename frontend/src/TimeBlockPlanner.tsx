@@ -9,6 +9,9 @@ type Block = {
   starts_at: string;
   ends_at: string;
   minutes?: number;
+  work_type_id?: string | null;
+  status?: string;
+  revision?: number;
 };
 type Unplaced = {
   task_id: string;
@@ -25,6 +28,12 @@ type Preview = {
   suggestions: Block[];
   unplaced: Unplaced[];
 };
+type Cancellation = {
+  block: Block;
+  fingerprint: string;
+  consequences: string[];
+  payload: { decision: "CANCEL"; expected_revision: number; timezone_name: string; reason: string };
+};
 type Confirmation = {
   state: "CONFIRMED_LOCAL";
   calendar_written: false;
@@ -37,7 +46,9 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await apiFetch(url, options);
   if (!response.ok) {
     const data = await response.json().catch(() => null);
-    throw new Error(typeof data?.detail === "string" ? data.detail : "Opération impossible.");
+    throw new Error(response.status === 409 ?
+      "Réservation ou aperçu périmé (409). Actualise avant de recommencer." :
+      typeof data?.detail === "string" ? data.detail : "Opération impossible.");
   }
   return response.json() as Promise<T>;
 }
@@ -50,13 +61,17 @@ const description: Record<string, string> = {
 };
 
 export function TimeBlockPlanner({
-  weekStart, taskIds,
+  weekStart, taskIds, taskNames = {}, workTypeNames = {}, onBookingChanged,
 }: {
   weekStart: string;
   taskIds: string[];
+  taskNames?: Record<string, string>;
+  workTypeNames?: Record<string, string>;
+  onBookingChanged?: () => void;
 }) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [confirmed, setConfirmed] = useState<Block[]>([]);
+  const [cancellation, setCancellation] = useState<Cancellation | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -73,7 +88,7 @@ export function TimeBlockPlanner({
 
   async function propose() {
     setBusy(true);
-    setPreview(null);
+    setPreview(null); setCancellation(null);
     setError(""); setMessage("");
     try {
       const result = await request<Preview>(base + "/preview", {
@@ -116,6 +131,44 @@ export function TimeBlockPlanner({
     }
   }
 
+  async function previewCancellation(block: Block) {
+    if (busy || !block.id || block.status !== "CONFIRMED" || !block.revision) return;
+    setBusy(true); setError(""); setMessage(""); setCancellation(null); setPreview(null);
+    const payload = { decision: "CANCEL" as const, expected_revision: block.revision,
+      timezone_name, reason: "Annulation manuelle" };
+    try {
+      const result = await request<{ fingerprint: string; consequences: string[] }>(
+        `${base}/${block.id}/resolution/preview`, {
+          method: "POST", headers, body: JSON.stringify(payload),
+        });
+      setCancellation({ block, fingerprint: result.fingerprint, consequences: result.consequences, payload });
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Aperçu d’annulation impossible.");
+    } finally { setBusy(false); }
+  }
+
+  async function confirmCancellation() {
+    if (!cancellation || busy || !cancellation.block.id) return;
+    if (!window.confirm("Annuler uniquement cette réservation locale ? La tâche reste inchangée et aucun événement Google n’est modifié.")) return;
+    const draft = cancellation;
+    setBusy(true); setError(""); setMessage("");
+    try {
+      await request(`${base}/${draft.block.id}/resolution/confirm`, {
+        method: "POST", headers, body: JSON.stringify({ ...draft.payload,
+          fingerprint: draft.fingerprint, decision_id: crypto.randomUUID(), confirmed: true }),
+      });
+      setCancellation(null); setPreview(null);
+      setConfirmed(await request<Block[]>(base));
+      onBookingChanged?.();
+      setMessage("Réservation annulée localement. Tâche inchangée; capacité et propositions à recalculer selon les contraintes. Aucun événement Google modifié.");
+    } catch (err: unknown) {
+      setCancellation(null);
+      setError(err instanceof Error ? err.message : "Annulation impossible.");
+      try { setConfirmed(await request<Block[]>(base)); } catch { /* Conserver le diagnostic principal. */ }
+    } finally { setBusy(false); }
+  }
+
+  const activeConfirmed = confirmed.filter((block) => block.id && block.status === "CONFIRMED");
   const describe = (block: Block) =>
     `${new Date(block.starts_at).toLocaleString()} – ${new Date(block.ends_at).toLocaleString()}`;
 
@@ -155,12 +208,26 @@ export function TimeBlockPlanner({
         </div>
       )}
       <h4>Créneaux déjà confirmés dans TaskPlanner</h4>
-      {confirmed.length === 0 ? <p className="muted">Aucune réservation locale.</p> : (
-        <ul className="capacityBlocks">{confirmed.map((block) => (
-          <li key={block.id}><span>{describe(block)} · tâche {block.task_id.slice(0, 8)}
-            {block.segment_id ? ` / segment ${block.segment_id.slice(0, 8)}` : ""}</span></li>
+      {activeConfirmed.length === 0 ? <p className="muted">Aucune réservation locale active.</p> : (
+        <ul className="capacityBlocks">{activeConfirmed.map((block) => (
+          <li key={block.id}>
+            <span>{describe(block)} · tâche {taskNames[block.task_id] || block.task_id.slice(0, 8)}
+              {block.segment_id ? ` / segment ${block.segment_id.slice(0, 8)}` : ""}
+              {" · "}{block.work_type_id ? workTypeNames[block.work_type_id] || block.work_type_id.slice(0, 8) : "Non classé"}
+              {" · "}{block.status}</span>
+            <button type="button" disabled={busy} aria-label={`Annuler la réservation ${block.id?.slice(0, 8)}`}
+              onClick={() => void previewCancellation(block)}>Annuler la réservation</button>
+          </li>
         ))}</ul>
       )}
+      {cancellation && <div className="capacityResult" aria-live="polite">
+        <h4>Aperçu d’annulation — réservation {cancellation.block.id?.slice(0, 8)}</h4>
+        <p>{describe(cancellation.block)} · tâche {taskNames[cancellation.block.task_id] || cancellation.block.task_id.slice(0, 8)}.</p>
+        <ul>{cancellation.consequences.map((item, index) => <li key={index}>{item}</li>)}</ul>
+        <p>Seule cette réservation sera annulée. La tâche reste inchangée; les minutes pourront redevenir planifiables selon les autres contraintes. Aucun événement Google ne sera modifié.</p>
+        <button type="button" disabled={busy} onClick={() => void confirmCancellation()}>Confirmer l’annulation locale</button>
+        <button type="button" disabled={busy} onClick={() => setCancellation(null)}>Garder la réservation</button>
+      </div>}
     </div>
   );
 }
