@@ -8,6 +8,7 @@ from app.server.recurring_availability import router as recurring_availability_r
 from app.server.effective_availability import router as effective_availability_router
 from app.server.calendar import router as calendar_router
 from app.server.time_blocks import router as time_blocks_router
+from app.server.booking_resolutions import router as booking_resolutions_router
 from app.server.decomposition import router as decomposition_router
 from app.server.arbitration import router as arbitration_router
 from app.server.protection import router as protection_router
@@ -73,6 +74,7 @@ app.include_router(recurring_availability_router)
 app.include_router(effective_availability_router)
 app.include_router(calendar_router)
 app.include_router(time_blocks_router)
+app.include_router(booking_resolutions_router)
 app.include_router(decomposition_router)
 app.include_router(arbitration_router)
 app.include_router(protection_router)

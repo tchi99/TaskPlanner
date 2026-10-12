@@ -169,6 +169,9 @@ class ConfirmedTimeBlockRecord(Base):
         Index("ix_confirmed_time_blocks_week", "week_start"),
         UniqueConstraint("task_id", "segment_id", "starts_at",
                          name="uq_confirmed_time_block_unit_start"),
+        CheckConstraint("status IN ('CONFIRMED','CANCELLED','SUPERSEDED')",
+                        name="ck_confirmed_time_blocks_status"),
+        CheckConstraint("revision > 0", name="ck_confirmed_time_blocks_revision"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -187,6 +190,8 @@ class ConfirmedTimeBlockRecord(Base):
     transferred_from_work_type_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("work_types.id", ondelete="RESTRICT"), nullable=True,
     )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="CONFIRMED")
+    revision: Mapped[int] = mapped_column(Integer(), nullable=False, default=1)
 
 
 class DailyReviewRecord(Base):
@@ -245,7 +250,7 @@ class HistoryEventRecord(Base):
             "sequence",
         ),
         CheckConstraint(
-            "entity_type IN ('TASK','SEGMENT','AVAILABILITY_RULE','AVAILABILITY_EXCEPTION')",
+            "entity_type IN ('TASK','SEGMENT','AVAILABILITY_RULE','AVAILABILITY_EXCEPTION','TIME_BLOCK')",
             name="ck_history_events_entity_type",
         ),
         CheckConstraint(

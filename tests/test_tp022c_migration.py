@@ -29,7 +29,7 @@ def test_accepted_transfer_column_does_not_rewrite_legacy_booking(tmp_path):
             "'2026-10-05T09:00:00-04:00', '2026-10-05T10:00:00-04:00')",
             (identity, task),
         )
-    migrate(db_path, "head")
+    migrate(db_path, "0013_tp022c")
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
             "0013_tp022c",
