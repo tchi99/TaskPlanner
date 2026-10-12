@@ -90,6 +90,10 @@ def project_effective(
     spans: list[_Span] = []
     for value in occurrences:
         if (value.rule_id, value.original_local_date) in targets:
+            # Cancelling or moving a categorized interval does NOT replenish
+            # its minutes in the general NULL bucket.
+            spans.append(_Span(value.starts_at, value.ends_at, "REMOVED", None, None,
+                               f"EXCEPTION:{targets[(value.rule_id, value.original_local_date)].id}:removed"))
             continue
         spans.append(_Span(value.starts_at, value.ends_at, value.kind.value,
                            value.work_type_id, value.mode,
@@ -121,7 +125,8 @@ def project_effective(
             issues.append(EffectiveIssue("DECLARED_UNAVAILABLE", start, end,
                                          tuple(v.source for v in unavailable)))
             continue
-        envelope = any(v.bucket == "GENERAL" for v in covered)
+        envelope = (any(v.bucket == "GENERAL" for v in covered)
+                    and not any(v.bucket == "REMOVED" for v in covered))
         manual_cover = [v for v in covered if v.bucket == "MANUAL"]
         classified = [v for v in covered if v.bucket == "CATEGORIZED"]
         if classified and not envelope:
