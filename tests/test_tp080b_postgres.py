@@ -215,3 +215,51 @@ def test_invalid_history_rolls_back_task_atomically(postgres_engine):
         assert session.scalar(select(HistoryEventRecord).where(
             HistoryEventRecord.task_id == task_id
         )) is None
+
+
+def test_tp022a_recurring_rules_round_trip_in_private_postgres(postgres_engine):
+    """Exercise the Alembic-created tables, JSON weekdays and CAS on PostgreSQL."""
+    from app.application.projects import create_work_type
+    from app.application.recurring_availability import (
+        create_rule, get_rule, revise_rule, read_occurrences,
+    )
+    from app.domain.recurring_availability import AvailabilityMode, RuleConflict, RuleKind
+    from zoneinfo import ZoneInfo
+
+    factory = sessionmaker(
+        bind=postgres_engine, autoflush=False, expire_on_commit=False
+    )
+    focus = create_work_type(SqlAlchemyUnitOfWork(factory), "TP-022A PG focus")
+    start = datetime.now(ZoneInfo("America/Toronto")).date() + timedelta(days=14)
+    payload = {
+        "effective_from": start, "valid_until": None,
+        "timezone_name": "America/Toronto", "days_of_week": (1, 3),
+        "starts_at_local": "09:00", "ends_at_local": "11:30",
+        "kind": RuleKind.CATEGORIZED, "work_type_id": focus.id,
+        "mode": AvailabilityMode.PROTECTED, "enabled": True,
+        "start_fold": None, "end_fold": None,
+    }
+    value = create_rule(SqlAlchemyUnitOfWork(factory), "pg-owner", payload)
+    assert get_rule(SqlAlchemyUnitOfWork(factory), "pg-owner", value.id).version == 1
+    found, issues = read_occurrences(
+        SqlAlchemyUnitOfWork(factory), "pg-owner", start, start + timedelta(days=7)
+    )
+    assert len(found) == 2 and not issues
+    revised = revise_rule(
+        SqlAlchemyUnitOfWork(factory), "pg-owner", value.id, 1,
+        {**payload, "effective_from": start + timedelta(days=7)},
+    )
+    assert revised.version == 2
+    with pytest.raises(RuleConflict):
+        revise_rule(
+            SqlAlchemyUnitOfWork(factory), "pg-owner", value.id, 1,
+            {**payload, "effective_from": start + timedelta(days=14)},
+        )
+    with postgres_engine.connect() as connection:
+        assert connection.scalar(text(
+            "SELECT COUNT(*) FROM recurring_availability_revisions WHERE rule_id = :id"
+        ), {"id": str(value.id)}) == 2
+        assert connection.scalar(text(
+            "SELECT COUNT(*) FROM history_events "
+            "WHERE entity_type = 'AVAILABILITY_RULE' AND entity_id = :id"
+        ), {"id": str(value.id)}) == 2
