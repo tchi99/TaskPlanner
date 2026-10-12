@@ -74,6 +74,10 @@ class SqlRecurringAvailabilityRepository:
             id=str(value.id), owner_id=value.owner_id, version=1,
             created_at=datetime.now(timezone.utc),
         ))
+        # No ORM relationship links the two records: make the parent row
+        # visible to the FK constraint before inserting its first revision.
+        # Both flushes remain inside the caller's atomic UnitOfWork.
+        self._session.flush()
         self._append(value.revisions[0])
         self._session.flush()
 
