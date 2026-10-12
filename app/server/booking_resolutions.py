@@ -75,7 +75,13 @@ def preview(
         "decision": result.decision,
         "conflict_codes": result.conflict_codes,
         "calendar_checked": result.calendar_checked,
-        "replacement": (ConfirmedBlockResponse.from_domain(result.replacement)
+        "replacement": ({"starts_at": result.replacement.starts_at,
+                         "ends_at": result.replacement.ends_at,
+                         "week_start": result.replacement.week_start,
+                         "task_id": result.replacement.task_id,
+                         "segment_id": result.replacement.segment_id,
+                         "work_type_id": result.replacement.work_type_id,
+                         "transferred_from": result.replacement.transferred_from}
                         if result.replacement else None),
         "consequences": result.consequences, "calendar_written": False,
     }
