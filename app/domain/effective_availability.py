@@ -152,17 +152,35 @@ def project_effective(
         blocks.append(EffectiveBlock(identity, start, end, selected_type,
                                      selected_mode, sources))
 
+    # A rule revision may make a future exception's origin disappear. Retain
+    # the data and surface the orphan; never reinterpret it as an implicit ADD.
+    for exc in active:
+        if exc.rule_id is None or exc.original_local_date is None:
+            continue
+        origin = exc.original_local_date
+        rule = next((v for v in rules if v.id == exc.rule_id), None)
+        valid = False
+        if rule is not None:
+            found, _ = expand_rules((rule,), origin, origin + timedelta(days=1))
+            valid = bool(found)
+        if not valid:
+            if (from_date <= origin < to_date or
+                    (exc.active_interval() is not None and
+                     exc.active_interval()[0] < hi and exc.active_interval()[1] > lo)):
+                issues.append(EffectiveIssue("ORPHANED_EXCEPTION", lo, hi,
+                                             (f"EXCEPTION:{exc.id}",)))
+            # Remove capacity accidentally added by a moved orphan. A
+            # proposed series edit is checked separately by the use case.
     for booking in confirmed:
         start, end = _utc(booking.starts_at), _utc(booking.ends_at)
         if start >= hi or end <= lo:
             continue
         start, end = max(start, lo), min(end, hi)
-        matching = sorted((v for v in blocks if v.work_type_id == booking.work_type_id
-                           and v.start < end and v.end > start)
-                          if False else
-                          (v for v in blocks if v.work_type_id == booking.work_type_id
-                           and v.starts_at < end and v.ends_at > start),
-                          key=lambda v: v.starts_at)
+        matching = sorted(
+            (v for v in blocks if v.work_type_id == booking.work_type_id
+             and v.starts_at < end and v.ends_at > start),
+            key=lambda v: v.starts_at,
+        )
         cursor = start
         for segment in matching:
             if segment.starts_at > cursor:

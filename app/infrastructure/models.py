@@ -418,8 +418,8 @@ class AvailabilityExceptionRecord(Base):
         nullable=True,
     )
     original_local_date: Mapped[date | None] = mapped_column(Date(), nullable=True)
-    starts_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
-    ends_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    starts_at: Mapped[datetime | None] = mapped_column(String(40), nullable=True)
+    ends_at: Mapped[datetime | None] = mapped_column(String(40), nullable=True)
     timezone_name: Mapped[str] = mapped_column(String(100), nullable=False)
     kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
     work_type_id: Mapped[str | None] = mapped_column(
