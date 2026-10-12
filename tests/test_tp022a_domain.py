@@ -95,3 +95,15 @@ def test_expired_and_disabled_series_do_not_materialize():
     disabled = revision(monday, enabled=False)
     rule = RecurringAvailabilityRule(disabled.rule_id, "owner", 1, (disabled,))
     assert expand_rules((rule,), monday, monday + timedelta(days=7))[0] == ()
+
+
+def test_expired_future_revision_never_restores_older_schedule():
+    first_day = date(2027, 1, 4)
+    identity = uuid4()
+    old = revision(first_day, rule_id=identity)
+    temporary = revision(first_day + timedelta(days=7), rule_id=identity,
+                         number=2, valid_until=first_day + timedelta(days=8))
+    series = RecurringAvailabilityRule(identity, "owner", 2, (old, temporary))
+    result, _ = expand_rules((series,), first_day + timedelta(days=14),
+                             first_day + timedelta(days=21))
+    assert result == ()
