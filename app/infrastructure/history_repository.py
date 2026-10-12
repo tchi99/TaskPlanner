@@ -44,12 +44,15 @@ class SqlHistoryReadRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def list_all(self, before: datetime | None = None) -> list[HistoryEvent]:
-        query = select(HistoryEventRecord)
-        if before is not None:
-            query = query.where(HistoryEventRecord.recorded_at <= before)
-        rows = self._session.scalars(query.order_by(HistoryEventRecord.sequence)).all()
-        return [HistoryEvent(
+    def get(self, event_id: UUID) -> HistoryEvent | None:
+        row = self._session.scalar(select(HistoryEventRecord).where(
+            HistoryEventRecord.id == str(event_id)
+        ))
+        return self._to_domain(row) if row is not None else None
+
+    @staticmethod
+    def _to_domain(row: HistoryEventRecord) -> HistoryEvent:
+        return HistoryEvent(
             id=UUID(row.id), occurred_at=row.occurred_at,
             recorded_at=row.recorded_at, entity_type=row.entity_type,
             entity_id=UUID(row.entity_id),
@@ -59,4 +62,11 @@ class SqlHistoryReadRepository:
             correlation_id=UUID(row.correlation_id),
             causation_id=UUID(row.causation_id) if row.causation_id else None,
             payload=row.payload, sequence=row.sequence,
-        ) for row in rows]
+        )
+
+    def list_all(self, before: datetime | None = None) -> list[HistoryEvent]:
+        query = select(HistoryEventRecord)
+        if before is not None:
+            query = query.where(HistoryEventRecord.recorded_at <= before)
+        rows = self._session.scalars(query.order_by(HistoryEventRecord.sequence)).all()
+        return [self._to_domain(row) for row in rows]

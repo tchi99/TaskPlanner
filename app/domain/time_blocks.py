@@ -26,8 +26,12 @@ class ConfirmedTimeBlock:
     ends_at: datetime
     id: UUID = field(default_factory=uuid4)
     transferred_from: UUID | None = None
+    status: str = "CONFIRMED"
+    revision: int = 1
 
     def __post_init__(self) -> None:
+        if self.status not in ("CONFIRMED", "CANCELLED", "SUPERSEDED") or self.revision < 1:
+            raise ValueError("invalid booking state or revision")
         if any(v.tzinfo is None or v.utcoffset() is None
                for v in (self.starts_at, self.ends_at)):
             raise ValueError("time block timestamps must be timezone-aware")
