@@ -10,7 +10,7 @@ from datetime import date, timedelta
 from hashlib import sha256
 import json
 from uuid import NAMESPACE_URL, uuid5
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.application.effective_availability import _state
 from app.application.uow import UnitOfWork
@@ -32,7 +32,10 @@ def effective_week(
 ) -> PlanningAvailability:
     """Caller owns the UoW transaction. Dates are half-open in the requested zone."""
     validate_week_start(week_start)
-    zone = ZoneInfo(timezone_name)
+    try:
+        zone = ZoneInfo(timezone_name)
+    except (ZoneInfoNotFoundError, ValueError, TypeError) as exc:
+        raise ValueError("invalid IANA timezone") from exc
     until = week_start + timedelta(days=7)
     rules, exceptions, manual, confirmed = _state(uow, owner_id, week_start, until)
     projection = project_effective(
