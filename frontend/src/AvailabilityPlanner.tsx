@@ -258,9 +258,9 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
     setExceptionDraft({
       action: value.action, rule_id: value.rule_id || "",
       original_local_date: value.original_local_date || "",
-      starts_at: value.starts_at ? dateISO(new Date(value.starts_at)) + "T" +
+      starts_at: value.starts_at ? dayInZone(value.starts_at, value.timezone_name) + "T" +
         timeInZone(value.starts_at, value.timezone_name) : "",
-      ends_at: value.ends_at ? dateISO(new Date(value.ends_at)) + "T" +
+      ends_at: value.ends_at ? dayInZone(value.ends_at, value.timezone_name) + "T" +
         timeInZone(value.ends_at, value.timezone_name) : "",
       timezone_name: value.timezone_name, kind: value.kind || "GENERAL",
       work_type_id: value.work_type_id || "", mode: value.mode || "PREFERRED",
