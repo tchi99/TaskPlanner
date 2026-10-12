@@ -41,3 +41,21 @@ def test_accepted_transfer_column_does_not_rewrite_legacy_booking(tmp_path):
         assert connection.execute(
             "SELECT id, transferred_from_work_type_id FROM confirmed_time_blocks"
         ).fetchone() == (identity, None)
+        constraints = connection.execute(
+            "PRAGMA foreign_key_list(confirmed_time_blocks)"
+        ).fetchall()
+        assert any(
+            row[2] == "work_types" and row[3] == "transferred_from_work_type_id"
+            and row[6] == "RESTRICT"
+            for row in constraints
+        )
+    migrate(db_path, "0012_tp022b")
+    with sqlite3.connect(db_path) as connection:
+        assert "transferred_from_work_type_id" not in {
+            row[1] for row in connection.execute(
+                "PRAGMA table_info(confirmed_time_blocks)"
+            )
+        }
+        assert connection.execute(
+            "SELECT id FROM confirmed_time_blocks"
+        ).fetchone() == (identity,)
