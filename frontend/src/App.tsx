@@ -5,6 +5,7 @@ import "./workspace.css";
 import { WorkspaceNav, workspacePages, type WorkspacePage } from "./WorkspaceNav";
 import { TaskSegments } from "./TaskSegments";
 import { WeeklyCapacity } from "./WeeklyCapacity";
+import { AvailabilityPlanner } from "./AvailabilityPlanner";
 import { MorningReview } from "./MorningReview";
 import { DailyReview } from "./DailyReview";
 import { WeeklyReview } from "./WeeklyReview";
@@ -123,6 +124,7 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [page, setPage] = useState<WorkspacePage>("today");
+  const [planningView, setPlanningView] = useState<"availability" | "capacity">("availability");
   const [taskFilter, setTaskFilter] = useState<"all" | "active" | "protected" | "completed">("active");
   const captureRef = useRef<HTMLInputElement>(null);
 
@@ -406,7 +408,15 @@ export function App() {
               )}
               {page === "planning" && (
                 <div className="workspacePage">
-                  <WeeklyCapacity tasks={tasks} workTypes={workTypes} />
+                  <div className="availabilitySwitch planningSwitch" role="group" aria-label="Sections de planification">
+                    <button type="button" className={planningView === "availability" ? "selected" : ""}
+                      aria-pressed={planningView === "availability"} onClick={() => setPlanningView("availability")}>Disponibilités</button>
+                    <button type="button" className={planningView === "capacity" ? "selected" : ""}
+                      aria-pressed={planningView === "capacity"} onClick={() => setPlanningView("capacity")}>Capacité et propositions</button>
+                  </div>
+                  {planningView === "availability"
+                    ? <AvailabilityPlanner workTypes={workTypes} />
+                    : <WeeklyCapacity tasks={tasks} workTypes={workTypes} />}
                 </div>
               )}
               {page === "weekly" && (
