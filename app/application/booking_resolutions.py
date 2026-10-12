@@ -224,7 +224,12 @@ def confirm_resolution(
             original = uow.time_blocks.get(booking_id)
             new_id = payload.get("replacement_id")
             assert original is not None
-            return original, uow.time_blocks.get(UUID(new_id)) if new_id else None
+            original = replace(original, status=payload["result_status"],
+                               revision=payload["result_revision"])
+            created = uow.time_blocks.get(UUID(new_id)) if new_id else None
+            if created is not None:
+                created = replace(created, status="CONFIRMED", revision=1)
+            return original, created
         try:
             preview = _prepare(uow, reader, owner, week, booking_id, revision,
                                decision, zone_name, reason, starts_at, ends_at)
@@ -248,6 +253,7 @@ def confirm_resolution(
             payload={
                 "owner": owner, "decision": decision, "reason": reason,
                 "fingerprint": fingerprint, "old_revision": revision,
+                "result_status": status, "result_revision": revision + 1,
                 "old_start": preview.booking.starts_at.isoformat(),
                 "old_end": preview.booking.ends_at.isoformat(),
                 "replacement_id": str(new_booking.id) if new_booking else None,
