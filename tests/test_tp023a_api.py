@@ -262,8 +262,10 @@ def test_real_competing_sqlite_confirmations_only_one_commits(runtime):
 def test_dst_nonexistent_civil_time_is_reported_and_never_silently_applied(runtime):
     client, factory = runtime
     start = monday()
-    # Toronto's next spring DST gap after the 2026-10-15 task date.
-    gap = __import__("datetime").date(2027, 3, 14)
+    # The second Sunday of March is the Toronto DST spring gap.
+    gap = __import__("datetime").date(datetime.now(ZoneInfo(ZONE)).year + 1, 3, 8)
+    while gap.weekday() != 6:
+        gap += timedelta(days=1)
     body = draft(client, gap, [slot("02:30", "03:30")], weekday=6)
     token = preview(client, body)
     assert any(issue["reason"] == "NONEXISTENT_LOCAL_TIME"
@@ -287,3 +289,30 @@ def test_read_grid_includes_stable_rule_sources(runtime):
     assert cell["slots"][0]["sources"] == [{
         "rule_id": created["id"], "revision": 1,
     }]
+
+
+def test_removing_categorized_interval_restores_general_null(runtime):
+    client, _ = runtime
+    start = monday()
+    focus = client.post("/api/work-types", json={"name": "Focus"}).json()["id"]
+    rule(client, start, weekdays=(1,), begins="09:00", ends="12:00")
+    category = client.post("/api/availability/rules", json={
+        "effective_from": str(start), "timezone_name": ZONE,
+        "days_of_week": [1], "starts_at_local": "09:00",
+        "ends_at_local": "10:00", "kind": "CATEGORIZED",
+        "work_type_id": focus, "mode": "PROTECTED",
+    })
+    assert category.status_code == 201, category.text
+    edit = draft(client, start, [], kind="CATEGORIZED",
+                 weekday=1, work_type_id=focus)
+    token = preview(client, edit)
+    assert token["has_changes"]
+    assert confirm(client, edit, token).status_code == 200
+    effective = client.get("/api/availability/effective", params={
+        "from": str(start), "to": str(start + timedelta(days=7)),
+        "timezone_name": ZONE,
+    })
+    assert effective.status_code == 200
+    blocks = effective.json()["blocks"]
+    assert blocks and all(v["work_type_id"] is None for v in blocks)
+    assert sum(v["minutes"] for v in blocks) == 180
