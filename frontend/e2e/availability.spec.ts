@@ -312,8 +312,9 @@ test("TP-023C : deux fenêtres disjointes, copie ciblée, jour OFF et rechargeme
   await expect(page.getByLabel("Mercredi plage 1 fin")).toHaveValue("12:00");
   // OFF est explicite, sans suppression d'un autre jour ou section.
   await page.getByRole("button", { name: "Ajouter une plage au Jeudi" }).click();
-  await page.getByRole("checkbox", { name: "Jeudi", exact: true }).uncheck();
-  await expect(page.getByText("Jour désactivé pour cette section.").nth(3)).toBeVisible();
+  await page.locator(".weeklyDays").getByRole("checkbox", { name: "Jeudi", exact: true }).uncheck();
+  await expect(page.locator(".weeklyDay").filter({ has: page.locator("strong").getByText("Jeudi", { exact: true }) })
+    .getByText("Jour désactivé pour cette section.")).toBeVisible();
   const request = page.waitForRequest((r) => r.url().endsWith("/weekly-schedule/preview") &&
     r.method() === "POST");
   await page.getByRole("button", { name: "Prévisualiser les changements" }).click();
@@ -335,8 +336,8 @@ test("TP-023C : deux fenêtres disjointes, copie ciblée, jour OFF et rechargeme
   await page.reload();
   await expect(page.getByLabel("Mardi plage 2 début")).toHaveValue("13:00");
   await expect(page.getByLabel("Mercredi plage 2 fin")).toHaveValue("14:00");
-  await expect(page.getByRole("checkbox", { name: "Jeudi", exact: true })).not.toBeChecked();
-  await expect(page.getByRole("checkbox", { name: "Vendredi", exact: true })).not.toBeChecked();
+  await expect(page.locator(".weeklyDays").getByRole("checkbox", { name: "Jeudi", exact: true })).not.toBeChecked();
+  await expect(page.locator(".weeklyDays").getByRole("checkbox", { name: "Vendredi", exact: true })).not.toBeChecked();
 });
 
 test("TP-023C : une série partagée ne modifie pas les jours non sélectionnés", async ({ page }) => {
@@ -356,7 +357,7 @@ test("TP-023C : une série partagée ne modifie pas les jours non sélectionnés
   await page.getByRole("button", { name: "Actualiser la grille" }).click();
   await expect(page.getByLabel("Jeudi plage 1 début")).toHaveValue("09:00");
   await page.getByRole("button", { name: "Retirer la plage 1 du Mardi" }).click();
-  await expect(page.getByRole("checkbox", { name: "Mardi", exact: true })).not.toBeChecked();
+  await expect(page.locator(".weeklyDays").getByRole("checkbox", { name: "Mardi", exact: true })).not.toBeChecked();
   await expect(page.getByLabel("Jeudi plage 1 début")).toHaveValue("09:00");
   const request = page.waitForRequest((r) => r.url().endsWith("/weekly-schedule/preview"));
   await page.getByRole("button", { name: "Prévisualiser les changements" }).click();
@@ -446,7 +447,7 @@ test("TP-023C : 409 conserve le brouillon et exige un nouvel aperçu", async ({ 
 });
 
 test("TP-023C : anomalie civile empêche de confirmer; grille utilisable au clavier et sur mobile", async ({ page }) => {
-  const toggle = page.getByRole("checkbox", { name: "Samedi", exact: true });
+  const toggle = page.locator(".weeklyDays").getByRole("checkbox", { name: "Samedi", exact: true });
   await toggle.focus();
   await page.keyboard.press("Space");
   await expect(toggle).toBeChecked();
