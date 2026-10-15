@@ -145,7 +145,7 @@ test("une règle hebdomadaire se crée par API depuis la vue desktop", async ({ 
   await expect(page.getByRole("heading", { name: "Disponibilités" })).toBeVisible();
   await page.getByText("Gestion avancée des anciennes séries et règles").click();
   await expect(page.getByRole("heading", { name: "Nouvelle plage récurrente" })).toBeVisible();
-  await page.getByLabel("Date d'effet").fill("2026-10-19");
+  await page.getByLabel("Date d'effet", { exact: true }).fill("2026-10-19");
   await page.getByLabel("Nature").selectOption("CATEGORIZED");
   await page.getByLabel("Type de travail").selectOption("focus-type");
   await page.getByLabel("Protection de la plage").selectOption("PROTECTED");
