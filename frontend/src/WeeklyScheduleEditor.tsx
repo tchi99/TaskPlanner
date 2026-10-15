@@ -68,10 +68,11 @@ function newSlot(kind: Kind): Slot {
     mode: kind === "GENERAL" ? null : "PREFERRED", start_fold: null, end_fold: null };
 }
 function titleOf(key: string, types: WorkType[]): string {
+  // Backend cell IDs are weekday:kind:work_type_id:timezone, unlike local draft keys.
   const parts = key.split(":");
-  const type = parts[1] === "NULL" ? "Enveloppe générale" :
-    types.find((item) => item.id === parts[1])?.name || "Type " + parts[1].slice(0, 8);
-  return days[Number(parts[2])] + " · " + type;
+  const type = parts[2] === "NULL" ? "Enveloppe générale" :
+    types.find((item) => item.id === parts[2])?.name || "Type " + parts[2].slice(0, 8);
+  return days[Number(parts[0])] + " · " + type;
 }
 function slotText(slot: Slot): string {
   return slot.starts_at_local + "–" + slot.ends_at_local +
@@ -118,9 +119,9 @@ export function WeeklyScheduleEditor({ workTypes, zone, onSaved }: {
     setGrid(snapshot);
     setCells(keepDraft ? { ...baseline, ...Object.fromEntries(dirty.map((key) =>
       [key, cells[key] || []])) } : baseline);
-    if (!keepDraft) {
-      setDirty([]); setChoices({}); setUnresolved([]);
-    }
+    if (!keepDraft) setDirty([]);
+    // Remapped exception candidates are tied to the old server projection.
+    setChoices({}); setUnresolved([]);
     setPreview(null); setPreparedCopy(null); setAcknowledged(false);
   }
   useEffect(() => {
