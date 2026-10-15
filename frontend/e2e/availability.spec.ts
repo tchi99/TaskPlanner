@@ -117,8 +117,8 @@ test.beforeEach(async ({ page }) => {
 test("TP-023B : édition d'un lundi par aperçu et sauvegarde atomique", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Grille de l'horaire habituel" })).toBeVisible();
   await page.getByRole("button", { name: "Ajouter une plage au Lundi" }).click();
-  await page.getByLabel("Lundi plage 1 début").fill("07:15");
-  await page.getByLabel("Lundi plage 1 fin").fill("16:15");
+  await page.getByLabel("Lundi plage 1 début", { exact: true }).fill("07:15");
+  await page.getByLabel("Lundi plage 1 fin", { exact: true }).fill("16:15");
   const request = page.waitForRequest((value) => value.url().endsWith("/weekly-schedule/preview") &&
     value.method() === "POST");
   await page.getByRole("button", { name: "Prévisualiser les changements" }).click();
@@ -137,19 +137,19 @@ test("TP-023B : édition d'un lundi par aperçu et sauvegarde atomique", async (
   expect(confirmed).toMatchObject({ confirmed: true, fingerprint: "f".repeat(64),
     acknowledge_conflicts: false });
   await expect(page.getByText(/Horaire futur enregistré atomiquement/)).toBeVisible();
-  await expect(page.getByLabel("Lundi plage 1 début")).toHaveValue("07:15");
+  await expect(page.getByLabel("Lundi plage 1 début", { exact: true })).toHaveValue("07:15");
 });
 
 test("TP-023B : copie ciblée après aperçu local, puis aperçu serveur groupé", async ({ page }) => {
   await page.getByRole("button", { name: "Ajouter une plage au Lundi" }).click();
-  await page.getByLabel("Lundi plage 1 début").fill("11:00");
-  await page.getByLabel("Lundi plage 1 fin").fill("12:00");
+  await page.getByLabel("Lundi plage 1 début", { exact: true }).fill("11:00");
+  await page.getByLabel("Lundi plage 1 fin", { exact: true }).fill("12:00");
   await page.getByRole("region", { name: "Copier la journée" })
     .getByLabel("Mardi").check();
   await page.getByRole("button", { name: "Préparer la copie" }).click();
   await expect(page.getByText("Remplacements dans le brouillon (aucune sauvegarde)")).toBeVisible();
   await page.getByRole("button", { name: "Appliquer la copie au brouillon" }).click();
-  await expect(page.getByLabel("Mardi plage 1 début")).toHaveValue("11:00");
+  await expect(page.getByLabel("Mardi plage 1 début", { exact: true })).toHaveValue("11:00");
   const preview = page.waitForRequest((request) => request.url().endsWith("/weekly-schedule/preview") &&
     request.method() === "POST");
   await page.getByRole("button", { name: "Prévisualiser les changements" }).click();
