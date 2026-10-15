@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 async function mockApi(page: Page) {
   let rule: object | null = null;
+  let weeklySections: unknown[] = [];
   let confirmed = false;
   let cancelled = false;
   let bookedWeek: string | null = null;
@@ -27,6 +28,36 @@ async function mockApi(page: Page) {
     if (path === "/api/tasks") return respond([]);
     if (path === "/api/projects") return respond([]);
     if (path === "/api/work-types") return respond([{ id: "focus-type", name: "Concentration" }]);
+    if (path === "/api/availability/weekly-schedule") {
+      return respond({
+        effective_from: url.searchParams.get("effective_from"), timezone_name:
+          url.searchParams.get("timezone_name"), source_versions: {},
+        sections: weeklySections, future_revisions: [],
+      });
+    }
+    if (path === "/api/availability/weekly-schedule/preview") {
+      const draft = request.postDataJSON();
+      return respond({
+        fingerprint: "f".repeat(64), has_changes: true, projection_days: 93,
+        before_declared_minutes_93d: 0, after_declared_minutes_93d: 60,
+        changed_sections: draft.sections.map((cell: { weekday: number; kind: string }) =>
+          cell.weekday + ":" + cell.kind + ":NULL:" + draft.timezone_name),
+        cell_changes: draft.sections.map((cell: { weekday: number; kind: string; slots: unknown[] }) => ({
+          section: cell.weekday + ":" + cell.kind + ":NULL:" + draft.timezone_name,
+          before: [], after: cell.slots, previous_future: [],
+        })),
+        series_cutovers: [], exception_remaps: [], unresolved_exceptions: [],
+        booking_conflicts: [], invalid_conflicts: [], civil_time_issues: [],
+        calendar_verified: false,
+      });
+    }
+    if (path === "/api/availability/weekly-schedule/confirm") {
+      const draft = request.postDataJSON();
+      if (!draft.confirmed || draft.fingerprint !== "f".repeat(64) || !draft.command_id)
+        return respond({ detail: "confirmation required" }, 422);
+      weeklySections = draft.sections;
+      return respond({ applied: true, calendar_written: false });
+    }
     if (path === "/api/availability/rules") {
       if (request.method() === "POST") {
         const body = request.postDataJSON();
@@ -81,6 +112,32 @@ test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await page.getByRole("navigation", { name: "Navigation principale" })
     .getByRole("button", { name: /Planification|Planifier/ }).click();
+});
+
+test("TP-023B : édition d'un lundi par aperçu et sauvegarde atomique", async ({ page }) => {
+  await expect(page.getByRole("heading", { name: "Grille de l'horaire habituel" })).toBeVisible();
+  await page.getByRole("button", { name: "Ajouter une plage au Lundi" }).click();
+  await page.getByLabel("Lundi plage 1 début").fill("07:15");
+  await page.getByLabel("Lundi plage 1 fin").fill("16:15");
+  const request = page.waitForRequest((value) => value.url().endsWith("/weekly-schedule/preview") &&
+    value.method() === "POST");
+  await page.getByRole("button", { name: "Prévisualiser les changements" }).click();
+  const body = (await request).postDataJSON();
+  expect(body.sections).toEqual([{
+    weekday: 0, kind: "GENERAL", work_type_id: null, slots: [{
+      starts_at_local: "07:15", ends_at_local: "16:15", mode: null,
+      start_fold: null, end_fold: null,
+    }],
+  }]);
+  await expect(page.getByText(/Capacité déclarée sur 93 jours/)).toBeVisible();
+  const confirmation = page.waitForRequest((value) => value.url().endsWith("/weekly-schedule/confirm") &&
+    value.method() === "POST");
+  await page.getByRole("button", { name: "Confirmer et enregistrer l'horaire futur" }).click();
+  const confirmed = (await confirmation).postDataJSON();
+  expect(confirmed).toMatchObject({ confirmed: true, fingerprint: "f".repeat(64),
+    acknowledge_conflicts: false });
+  await expect(page.getByText(/Horaire futur enregistré atomiquement/)).toBeVisible();
+  await expect(page.getByLabel("Lundi plage 1 début")).toHaveValue("07:15");
 });
 
 test("une règle hebdomadaire se crée par API depuis la vue desktop", async ({ page }, testInfo) => {
