@@ -1,3 +1,9 @@
+.weeklyDst { border-top: 1px dashed #dde5ec; margin-top: 9px; padding-top: 7px; }
+.weeklyDst summary { cursor: pointer; font-size: .76rem; color: #526475; }
+.weeklyDst .weeklyTimeFields { margin-top: 9px; }
+.availabilityLegacy { border: 1px dashed #cbd5e1; border-radius: 12px; padding: 10px; }
+.availabilityLegacy > summary { cursor: pointer; font-weight: 650; color: #37536c; padding: 7px; }
+.availabilityLegacy[open] { display: grid; gap: 13px; }
 .weeklyEditor { display: grid; gap: 12px; }
 .weeklyEditor .availabilityCardHeading h3 { margin-bottom: 5px; }
 .weeklyControls { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
