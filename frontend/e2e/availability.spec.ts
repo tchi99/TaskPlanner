@@ -145,7 +145,7 @@ test("TP-023B : copie ciblée après aperçu local, puis aperçu serveur groupé
   await page.getByLabel("Lundi plage 1 début", { exact: true }).fill("11:00");
   await page.getByLabel("Lundi plage 1 fin", { exact: true }).fill("12:00");
   await page.getByRole("region", { name: "Copier la journée" })
-    .getByLabel("Mardi").check();
+    .getByRole("checkbox", { name: "Mardi", exact: true }).check();
   await page.getByRole("button", { name: "Préparer la copie" }).click();
   await expect(page.getByText("Remplacements dans le brouillon (aucune sauvegarde)")).toBeVisible();
   await page.getByRole("button", { name: "Appliquer la copie au brouillon" }).click();
