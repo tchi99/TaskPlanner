@@ -13,7 +13,7 @@ type Slot = {
 type Cell = { weekday: number; kind: Kind; work_type_id: string | null; slots: Slot[] };
 type GridResponse = {
   effective_from: string; timezone_name: string; source_versions: Record<string, number>;
-  sections: Omit<Cell, "slots"> & { slots: Omit<Slot, "id">[] }[];
+  sections: (Omit<Cell, "slots"> & { slots: Omit<Slot, "id">[] })[];
   future_revisions: { rule_id: string; number: number; effective_from: string }[];
 };
 type EditSection = { weekday: number; kind: Kind; work_type_id: string | null; slots: Omit<Slot, "id" | "sources">[] };
