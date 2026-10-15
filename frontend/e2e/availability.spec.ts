@@ -334,6 +334,11 @@ test("TP-023C : deux fenêtres disjointes, copie ciblée, jour OFF et rechargeme
   await expect(page.getByText(/Horaire futur enregistré atomiquement/)).toBeVisible();
   expect(confirms).toBe(1);
   await page.reload();
+  // Le rechargement revient sur « Aujourd'hui » : rouvrir Planification
+  // pour vérifier les plages relues depuis l'API simulée persistante.
+  await page.getByRole("navigation", { name: "Navigation principale" })
+    .getByRole("button", { name: /Planification|Planifier/ }).click();
+  await expect(page.getByRole("heading", { name: "Grille de l'horaire habituel" })).toBeVisible();
   await expect(page.getByLabel("Mardi plage 2 début", { exact: true })).toHaveValue("13:00");
   await expect(page.getByLabel("Mercredi plage 2 fin", { exact: true })).toHaveValue("14:00");
   await expect(page.locator(".weeklyDays").getByRole("checkbox", { name: "Jeudi", exact: true })).not.toBeChecked();
