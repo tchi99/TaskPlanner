@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { apiFetch } from "./auth";
 import "./availability.css";
+import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
 
 type WorkType = { id: string; name: string };
 type Mode = "PROTECTED" | "PREFERRED";
@@ -119,6 +120,7 @@ function shortId(id: string): string { return id.slice(0, 8); }
 
 export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
   const [tab, setTab] = useState<"rules" | "real">("rules");
+  const [weeklyGridDirty, setWeeklyGridDirty] = useState(false);
   const [week, setWeek] = useState(() => weekOf(dateISO(new Date())));
   const [zone, setZone] = useState(browserZone);
   const [zoneInput, setZoneInput] = useState(browserZone);
@@ -417,7 +419,10 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
           <button type="button" aria-pressed={tab === "rules"} className={tab === "rules" ? "selected" : ""}
             onClick={() => setTab("rules")}>Horaire habituel</button>
           <button type="button" aria-pressed={tab === "real"} className={tab === "real" ? "selected" : ""}
-            onClick={() => setTab("real")}>Semaine réelle</button>
+            onClick={() => {
+              if (weeklyGridDirty && !window.confirm("Abandonner les changements non enregistrés de l'horaire habituel ?")) return;
+              setTab("real");
+            }}>Semaine réelle</button>
         </div>
       </div>
       <div className="availabilityToolbar">
@@ -430,7 +435,12 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
           <input value={zoneInput} onChange={(event) => setZoneInput(event.target.value)} aria-label="Fuseau horaire IANA" />
         </label>
         <button type="button" onClick={() => {
-          try { new Intl.DateTimeFormat("fr-CA", { timeZone: zoneInput }); setZone(zoneInput); setError(""); }
+          try {
+            new Intl.DateTimeFormat("fr-CA", { timeZone: zoneInput });
+            if (zoneInput !== zone && weeklyGridDirty &&
+                !window.confirm("Changer de fuseau abandonnera le brouillon de grille non enregistré. Continuer ?")) return;
+            setZone(zoneInput); setError("");
+          }
           catch { setError("Fuseau IANA invalide."); }
         }}>Appliquer le fuseau</button>
         <button type="button" onClick={() => void reload().catch((err: unknown) =>
@@ -440,7 +450,11 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
       {notice && <p role="status" className="availabilityNotice">{notice}</p>}
       {loading ? <p role="status">Chargement des disponibilités…</p> : tab === "rules" ? (
         <div className="availabilityStack">
+          <WeeklyScheduleEditor workTypes={workTypes} zone={zone} onSaved={reload} onDirtyChange={setWeeklyGridDirty} />
+          <details className="availabilityLegacy">
+            <summary>Gestion avancée des anciennes séries et règles</summary>
           <section className="availabilityCard">
+            <p className="muted">Édition historique règle par règle. Pour une copie ou plusieurs changements atomiques, utilise la grille ci-dessus.</p>
             <h3>Règles hebdomadaires</h3>
             <p className="muted">Une enveloppe générale et des plages de travail catégorisées ne s'additionnent pas. Protégée interdit le placement ordinaire d'un autre type; préférentielle permet seulement une proposition motivée.</p>
             {rules.length === 0 ? <p className="empty">Aucune règle habituelle. Commence par une enveloppe générale.</p> : (
@@ -515,6 +529,7 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
                 {editingRule && <button type="button" onClick={() => { setEditingRule(null); setRuleDraft(initialRule); }}>Annuler</button>}</div>
             </form>
           </section>
+          </details>
         </div>
       ) : (
         <div className="availabilityStack">
