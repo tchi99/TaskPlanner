@@ -266,3 +266,217 @@ test("le planificateur de créneaux exige aperçu puis confirmation et rafraîch
   await expect(page.getByText("Aucune réservation locale active.")).toBeVisible();
   await expect(page.getByRole("status")).toContainText("Réservation annulée localement");
 });
+
+
+// TP-023C: recette UX de la grille. Les endpoints sont simulés; aucune donnée réelle,
+// écriture Google Calendar ou réservation de production n'est impliquée.
+function tp023cPreview(draft: {
+  timezone_name: string;
+  sections: { weekday: number; kind: string; work_type_id: string | null; slots: unknown[] }[];
+}, extra: Record<string, unknown> = {}) {
+  const section = (cell: typeof draft.sections[number]) =>
+    cell.weekday + ":" + cell.kind + ":" + (cell.work_type_id || "NULL") +
+    ":" + draft.timezone_name;
+  return {
+    fingerprint: "f".repeat(64), has_changes: true, projection_days: 93,
+    before_declared_minutes_93d: 240, after_declared_minutes_93d: 180,
+    changed_sections: draft.sections.map(section),
+    cell_changes: draft.sections.map((cell) => ({
+      section: section(cell), before: [], after: cell.slots, previous_future: [],
+    })),
+    series_cutovers: [], exception_remaps: [], unresolved_exceptions: [],
+    booking_conflicts: [], invalid_conflicts: [], civil_time_issues: [],
+    calendar_verified: false, ...extra,
+  };
+}
+
+test("TP-023C : deux fenêtres disjointes, copie ciblée, jour OFF et rechargement", async ({ page }) => {
+  let confirms = 0;
+  page.on("request", (request) => {
+    if (request.url().endsWith("/weekly-schedule/confirm")) confirms++;
+  });
+  await page.getByRole("button", { name: "Ajouter une plage au Lundi" }).click();
+  await page.getByLabel("Lundi plage 1 début", { exact: true }).fill("11:00");
+  await page.getByLabel("Lundi plage 1 fin", { exact: true }).fill("12:00");
+  await page.getByRole("button", { name: "Ajouter une plage au Lundi" }).click();
+  await page.getByLabel("Lundi plage 2 début", { exact: true }).fill("13:00");
+  await page.getByLabel("Lundi plage 2 fin", { exact: true }).fill("14:00");
+  const copier = page.getByRole("region", { name: "Copier la journée" });
+  await copier.getByRole("checkbox", { name: "Mardi", exact: true }).check();
+  await copier.getByRole("checkbox", { name: "Mercredi", exact: true }).check();
+  await page.getByRole("button", { name: "Préparer la copie" }).click();
+  await expect(page.getByText("Remplacements dans le brouillon (aucune sauvegarde)")).toBeVisible();
+  expect(confirms).toBe(0);
+  await page.getByRole("button", { name: "Appliquer la copie au brouillon" }).click();
+  await expect(page.getByLabel("Mardi plage 2 début", { exact: true })).toHaveValue("13:00");
+  await expect(page.getByLabel("Mercredi plage 1 fin", { exact: true })).toHaveValue("12:00");
+  // OFF est explicite, sans suppression d'un autre jour ou section.
+  await page.getByRole("button", { name: "Ajouter une plage au Jeudi" }).click();
+  await page.locator(".weeklyDays").getByRole("checkbox", { name: "Jeudi", exact: true }).uncheck();
+  await expect(page.locator(".weeklyDay").filter({ has: page.locator("strong").getByText("Jeudi", { exact: true }) })
+    .getByText("Jour désactivé pour cette section.")).toBeVisible();
+  const request = page.waitForRequest((r) => r.url().endsWith("/weekly-schedule/preview") &&
+    r.method() === "POST");
+  await page.getByRole("button", { name: "Prévisualiser les changements" }).click();
+  const draft = (await request).postDataJSON();
+  expect(draft.sections.map((cell: { weekday: number }) => cell.weekday).sort())
+    .toEqual([0, 1, 2, 3]);
+  for (const cell of draft.sections.slice(0, 3)) {
+    expect(cell.slots.map((s: { starts_at_local: string; ends_at_local: string }) =>
+      [s.starts_at_local, s.ends_at_local])).toEqual([
+        ["11:00", "12:00"], ["13:00", "14:00"],
+      ]);
+  }
+  expect(draft.sections[3].slots).toEqual([]);
+  expect(confirms).toBe(0);
+  await expect(page.getByText(/Capacité déclarée sur 93 jours/)).toBeVisible();
+  await page.getByRole("button", { name: "Confirmer et enregistrer l'horaire futur" }).click();
+  await expect(page.getByText(/Horaire futur enregistré atomiquement/)).toBeVisible();
+  expect(confirms).toBe(1);
+  await page.reload();
+  // Le rechargement revient sur « Aujourd'hui » : rouvrir Planification
+  // pour vérifier les plages relues depuis l'API simulée persistante.
+  await page.getByRole("navigation", { name: "Navigation principale" })
+    .getByRole("button", { name: /Planification|Planifier/ }).click();
+  await expect(page.getByRole("heading", { name: "Grille de l'horaire habituel" })).toBeVisible();
+  await expect(page.getByLabel("Mardi plage 2 début", { exact: true })).toHaveValue("13:00");
+  await expect(page.getByLabel("Mercredi plage 2 fin", { exact: true })).toHaveValue("14:00");
+  await expect(page.locator(".weeklyDays").getByRole("checkbox", { name: "Jeudi", exact: true })).not.toBeChecked();
+  await expect(page.locator(".weeklyDays").getByRole("checkbox", { name: "Vendredi", exact: true })).not.toBeChecked();
+});
+
+test("TP-023C : une série partagée ne modifie pas les jours non sélectionnés", async ({ page }) => {
+  const shared = [0, 1, 2, 3, 4].map((weekday) => ({
+    weekday, kind: "GENERAL", work_type_id: null, slots: [{
+      starts_at_local: "09:00", ends_at_local: "10:00",
+      mode: null, start_fold: null, end_fold: null,
+      sources: [{ rule_id: "shared-weekdays", revision: 1 }],
+    }],
+  }));
+  await page.route((url) => url.pathname === "/api/availability/weekly-schedule",
+    (route) => route.fulfill({ status: 200, contentType: "application/json",
+      body: JSON.stringify({ effective_from: route.request().url().split("effective_from=")[1]?.slice(0, 10),
+        timezone_name: "America/Toronto", source_versions: { "shared-weekdays": 1 },
+        sections: shared, future_revisions: [] }),
+    }));
+  await page.getByRole("button", { name: "Actualiser la grille" }).click();
+  await expect(page.getByLabel("Jeudi plage 1 début", { exact: true })).toHaveValue("09:00");
+  await page.getByRole("button", { name: "Retirer la plage 1 du Mardi" }).click();
+  await expect(page.locator(".weeklyDays").getByRole("checkbox", { name: "Mardi", exact: true })).not.toBeChecked();
+  await expect(page.getByLabel("Jeudi plage 1 début", { exact: true })).toHaveValue("09:00");
+  const request = page.waitForRequest((r) => r.url().endsWith("/weekly-schedule/preview"));
+  await page.getByRole("button", { name: "Prévisualiser les changements" }).click();
+  const body = (await request).postDataJSON();
+  expect(body.sections).toEqual([{ weekday: 1, kind: "GENERAL",
+    work_type_id: null, slots: [] }]);
+  expect(body.expected_versions).toEqual({ "shared-weekdays": 1 });
+  await page.getByRole("button", { name: "Annuler les modifications" }).click();
+  await expect(page.getByLabel("Mardi plage 1 début", { exact: true })).toHaveValue("09:00");
+  await expect(page.getByLabel("Vendredi plage 1 fin", { exact: true })).toHaveValue("10:00");
+});
+
+test("TP-023C : catégorie protégée, date d'effet et DST sont transmis sans inférence locale", async ({ page }) => {
+  await page.getByLabel("Date d'effet de la grille").fill("2027-11-07");
+  await page.getByLabel("Section de l'horaire").selectOption("focus-type");
+  await page.getByRole("button", { name: "Ajouter une plage au Dimanche" }).click();
+  await page.getByLabel("Dimanche plage 1 début", { exact: true }).fill("01:00");
+  await page.getByLabel("Dimanche plage 1 fin", { exact: true }).fill("02:00");
+  await page.getByLabel("Dimanche plage 1 mode").selectOption("PROTECTED");
+  await page.getByText("Transitions DST · automatique").click();
+  await page.getByLabel("Dimanche plage 1 début DST").selectOption("1");
+  const request = page.waitForRequest((r) => r.url().endsWith("/weekly-schedule/preview"));
+  await page.getByRole("button", { name: "Prévisualiser les changements" }).click();
+  const body = (await request).postDataJSON();
+  expect(body.effective_from).toBe("2027-11-07");
+  expect(body.timezone_name).toBe("America/Toronto");
+  expect(body.sections).toMatchObject([{
+    weekday: 6, kind: "CATEGORIZED", work_type_id: "focus-type",
+    slots: [{ starts_at_local: "01:00", ends_at_local: "02:00",
+      mode: "PROTECTED", start_fold: 1, end_fold: null }],
+  }]);
+  await expect(page.getByText(/Google Calendar non vérifié/)).toBeVisible();
+});
+
+test("TP-023C : conflit CONFIRMED visible et reconnu, sans annulation de réservation", async ({ page }) => {
+  let resolutionWrites = 0;
+  let googleWrites = 0;
+  page.on("request", (request) => {
+    if (request.url().includes("/resolution/confirm")) resolutionWrites++;
+    if (request.method() !== "GET" && /google|calendar/i.test(request.url())) googleWrites++;
+  });
+  await page.route("**/api/availability/weekly-schedule/preview", (route) => {
+    const body = route.request().postDataJSON();
+    return route.fulfill({ status: 200, contentType: "application/json",
+      body: JSON.stringify(tp023cPreview(body, {
+        booking_conflicts: [{ booking_id: "booking-one",
+          starts_at: "2026-10-20T09:00:00-04:00", new: true }],
+      })),
+    });
+  });
+  await page.getByRole("button", { name: "Ajouter une plage au Mardi" }).click();
+  await page.getByRole("button", { name: "Prévisualiser les changements" }).click();
+  await expect(page.getByRole("heading", { name: "Réservations CONFIRMED : conservées" })).toBeVisible();
+  const confirm = page.getByRole("button", { name: "Confirmer et enregistrer l'horaire futur" });
+  await expect(confirm).toBeDisabled();
+  await page.getByRole("checkbox", {
+    name: "Je reconnais les nouveaux conflits sans annuler ni déplacer les réservations.",
+  }).check();
+  await expect(confirm).toBeEnabled();
+  const request = page.waitForRequest((r) => r.url().endsWith("/weekly-schedule/confirm"));
+  await confirm.click();
+  expect((await request).postDataJSON()).toMatchObject({
+    confirmed: true, acknowledge_conflicts: true,
+  });
+  await expect(page.getByText(/Horaire futur enregistré atomiquement/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Annuler la réservation booking-" })).toBeVisible();
+  expect(resolutionWrites).toBe(0);
+  expect(googleWrites).toBe(0);
+});
+
+test("TP-023C : 409 conserve le brouillon et exige un nouvel aperçu", async ({ page }) => {
+  await page.route("**/api/availability/weekly-schedule/confirm", (route) =>
+    route.fulfill({ status: 409, contentType: "application/json",
+      body: JSON.stringify({ detail: "versions obsolètes" }) }));
+  await page.getByRole("button", { name: "Ajouter une plage au Mardi" }).click();
+  await page.getByLabel("Mardi plage 1 début", { exact: true }).fill("07:15");
+  await page.getByRole("button", { name: "Prévisualiser les changements" }).click();
+  await page.getByRole("button", { name: "Confirmer et enregistrer l'horaire futur" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Conflit de versions (409)" })).toBeVisible();
+  await expect(page.getByLabel("Mardi plage 1 début", { exact: true })).toHaveValue("07:15");
+  await expect(page.getByRole("button", { name: "Confirmer et enregistrer l'horaire futur" }))
+    .toHaveCount(0);
+  await page.getByRole("button", { name: "Réactualiser les versions sans perdre le brouillon" }).click();
+  await expect(page.getByLabel("Mardi plage 1 début", { exact: true })).toHaveValue("07:15");
+  await page.getByRole("button", { name: "Prévisualiser les changements" }).click();
+  await expect(page.getByRole("button", { name: "Confirmer et enregistrer l'horaire futur" })).toBeVisible();
+});
+
+test("TP-023C : anomalie civile empêche de confirmer; grille utilisable au clavier et sur mobile", async ({ page }) => {
+  const toggle = page.locator(".weeklyDays").getByRole("checkbox", { name: "Samedi", exact: true });
+  await toggle.focus();
+  await page.keyboard.press("Space");
+  await expect(toggle).toBeChecked();
+  const add = page.getByRole("button", { name: "Ajouter une plage au Samedi" });
+  await add.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByLabel("Samedi plage 2 début", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Annuler les modifications" }).click();
+  await expect(toggle).not.toBeChecked();
+  await page.route("**/api/availability/weekly-schedule/preview", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json",
+      body: JSON.stringify(tp023cPreview(route.request().postDataJSON(), {
+        civil_time_issues: [{ date: "2027-03-14", reason: "NONEXISTENT_LOCAL_TIME" }],
+      })),
+    }));
+  await page.getByLabel("Date d'effet de la grille").fill("2027-03-14");
+  await page.getByRole("button", { name: "Ajouter une plage au Dimanche" }).click();
+  await page.getByLabel("Dimanche plage 1 début", { exact: true }).fill("02:30");
+  await page.getByLabel("Dimanche plage 1 fin", { exact: true }).fill("03:30");
+  await page.getByRole("button", { name: "Prévisualiser les changements" }).click();
+  await expect(page.getByText(/NONEXISTENT_LOCAL_TIME/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Confirmer et enregistrer l'horaire futur" }))
+    .toBeDisabled();
+  const hasOverflow = await page.evaluate(() =>
+    document.documentElement.scrollWidth > window.innerWidth + 1);
+  expect(hasOverflow).toBe(false);
+});

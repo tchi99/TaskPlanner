@@ -316,3 +316,83 @@ def test_removing_categorized_interval_restores_general_null(runtime):
     blocks = effective.json()["blocks"]
     assert blocks and all(v["work_type_id"] is None for v in blocks)
     assert sum(v["minutes"] for v in blocks) == 180
+
+
+def test_shared_weekday_series_two_windows_and_day_off_preserve_untouched_days(runtime):
+    """TP-023C: editing Tuesday/Wednesday never rewrites other weekdays or history."""
+    client, factory = runtime
+    start = monday()
+    rule(client, start, weekdays=(0, 1, 2, 3, 4))
+    effect = start + timedelta(days=7)
+    body = draft(client, effect, [slot("11:00", "12:00"),
+                                  slot("13:00", "14:00")], weekday=1)
+    body["sections"].append({
+        "weekday": 2, "kind": "GENERAL", "work_type_id": None, "slots": [],
+    })
+    token = preview(client, body)
+    assert token["has_changes"]
+    assert len(token["cell_changes"]) == 2
+    assert token["invalid_conflicts"] == []
+    saved = confirm(client, body, token)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["applied"]
+    assert saved.json()["calendar_written"] is False
+
+    def daily_windows(week):
+        response = client.get("/api/availability/rules/occurrences", params={
+            "from": str(week), "to": str(week + timedelta(days=7)),
+        })
+        assert response.status_code == 200, response.text
+        result = {}
+        for occurrence in response.json()["occurrences"]:
+            day = occurrence["original_local_date"]
+            beginning = datetime.fromisoformat(occurrence["starts_at"]).astimezone(ZoneInfo(ZONE))
+            ending = datetime.fromisoformat(occurrence["ends_at"]).astimezone(ZoneInfo(ZONE))
+            result.setdefault(day, []).append((beginning.strftime("%H:%M"),
+                                                ending.strftime("%H:%M")))
+        return {day: sorted(intervals) for day, intervals in result.items()}
+
+    previous = daily_windows(start)
+    assert all(previous[str(start + timedelta(days=i))] == [("09:00", "10:00")]
+               for i in range(5))
+    future = daily_windows(effect)
+    assert future[str(effect)] == [("09:00", "10:00")]
+    assert future[str(effect + timedelta(days=1))] == [
+        ("11:00", "12:00"), ("13:00", "14:00")]
+    assert str(effect + timedelta(days=2)) not in future
+    for i in (3, 4):
+        assert future[str(effect + timedelta(days=i))] == [("09:00", "10:00")]
+    grid = client.get(ROOT, params={"effective_from": str(effect),
+                                     "timezone_name": ZONE}).json()
+    thursday = next(item for item in grid["sections"]
+                    if item["weekday"] == 3 and item["kind"] == "GENERAL")
+    assert thursday["slots"][0]["sources"]  # Provenance reste traçable après scission.
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(
+            WeeklyScheduleCommandRecord)) == 1
+
+
+def test_stale_multi_day_copy_refuses_every_cell_without_partial_mutation(runtime):
+    """TP-023C: 409 rejects the entire Tuesday + Wednesday draft."""
+    client, factory = runtime
+    start = monday()
+    rule(client, start, weekdays=(0, 1, 2, 3, 4))
+    effect = start + timedelta(days=7)
+    body = draft(client, effect, [slot("11:00", "12:00")], weekday=1)
+    body["sections"].append({
+        "weekday": 2, "kind": "GENERAL", "work_type_id": None,
+        "slots": [slot("13:00", "14:00")],
+    })
+    token = preview(client, body)
+    # Another transaction changes the source versions after the preview.
+    rule(client, start, weekdays=(6,), begins="15:00", ends="16:00")
+    rejected = confirm(client, body, token)
+    assert rejected.status_code == 409, rejected.text
+    after = occurrences(client, effect)
+    assert datetime.fromisoformat(after[str(effect + timedelta(days=1))]).astimezone(
+        ZoneInfo(ZONE)).strftime("%H:%M") == "09:00"
+    assert datetime.fromisoformat(after[str(effect + timedelta(days=2))]).astimezone(
+        ZoneInfo(ZONE)).strftime("%H:%M") == "09:00"
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(
+            WeeklyScheduleCommandRecord)) == 0
