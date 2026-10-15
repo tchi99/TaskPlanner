@@ -143,6 +143,7 @@ test("TP-023B : édition d'un lundi par aperçu et sauvegarde atomique", async (
 test("une règle hebdomadaire se crée par API depuis la vue desktop", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chromium", "Scénario desktop.");
   await expect(page.getByRole("heading", { name: "Disponibilités" })).toBeVisible();
+  await page.getByText("Gestion avancée des anciennes séries et règles").click();
   await expect(page.getByRole("heading", { name: "Nouvelle plage récurrente" })).toBeVisible();
   await page.getByLabel("Date d'effet").fill("2026-10-19");
   await page.getByLabel("Nature").selectOption("CATEGORIZED");
@@ -206,6 +207,7 @@ test("une réservation sans conflit s'annule dans la semaine réelle sans mutati
 
 test("l'horaire habituel annule seulement la réservation datée, sans toucher la série", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Réservations de la semaine" })).toBeVisible();
+  await page.getByText("Gestion avancée des anciennes séries et règles").click();
   await expect(page.getByRole("heading", { name: "Règles hebdomadaires" })).toBeVisible();
   await page.getByRole("button", { name: "Annuler la réservation booking-" }).click();
   await page.getByRole("button", { name: "Prévisualiser la résolution" }).click();
