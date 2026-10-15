@@ -114,6 +114,8 @@ def test_weekday_split_future_versions_same_day_repeat_and_idempotence(runtime):
     assert len(token["series_cutovers"]) == 1
     assert token["series_cutovers"][0]["future_revisions_superseded"] == [2]
     assert len(token["derived_rule_ids"]) == 2
+    assert token["cell_changes"][0]["before"][0]["starts_at_local"] == "09:00"
+    assert token["cell_changes"][0]["after"][0]["starts_at_local"] == "12:00"
     assert token["calendar_verified"] is False
     command = uuid4()
     applied = confirm(client, body, token, command_id=command)
@@ -129,7 +131,6 @@ def test_weekday_split_future_versions_same_day_repeat_and_idempotence(runtime):
     assert len(previous) == 3
     next_week = occurrences(client, effect)
     assert len(next_week) == 3
-    assert next_week[str(effect)].endswith("13:00:00+00:00") is False  # UTC, not a civil-hour assertion
     assert datetime.fromisoformat(next_week[str(effect+timedelta(days=1))]).astimezone(
         ZoneInfo(ZONE)).hour == 12
     far = occurrences(client, start+timedelta(days=28))

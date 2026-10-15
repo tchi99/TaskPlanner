@@ -322,6 +322,16 @@ def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
             version=exc.version+1,
         )
     proposed_exceptions = tuple(changed_exceptions.get(e.id, e) for e in exceptions)
+    # Owner/rule/origin is unique in SQL: fail during preview, not halfway
+    # through confirmation, and never silently discard an exception.
+    targeted = {}
+    for exc in proposed_exceptions:
+        if exc.rule_id is None or exc.original_local_date is None:
+            continue
+        key = (exc.owner_id, exc.rule_id, exc.original_local_date)
+        previous = targeted.setdefault(key, exc.id)
+        if previous != exc.id:
+            raise RuleConflict("multiple exceptions would target the same revised occurrence")
     # A preview is explicitly bounded to 93 civil days, not an assertion that
     # the remainder of an infinite recurrence has no future Google conflicts.
     end = draft.effective_from + timedelta(days=93)
@@ -375,6 +385,18 @@ def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
         "timezone_name": draft.timezone_name,
         "fingerprint": _digest(snapshot),
         "changed_sections": sorted(_key_str(k) for k in modified),
+        "cell_changes": [
+            {"section": _key_str(key),
+             "before": [asdict(s) for s in _slots_for(rules, draft.effective_from, key)],
+             "after": [asdict(s) for s in slots],
+             "previous_future": [
+                 {"effective_from": when.isoformat(),
+                  "slots": [asdict(s) for s in _slots_for(rules, when, key)]}
+                 for when in days if when > draft.effective_from
+                 and _slots_for(rules, when, key) != _slots_for(rules, draft.effective_from, key)
+             ]}
+            for key, slots in sorted(modified.items(), key=lambda x: _key_str(x[0]))
+        ],
         "series_cutovers": [{"rule_id": str(id_), "version": rule.version,
                              "future_revisions_superseded": [
                                  r.number for r in rule.revisions
