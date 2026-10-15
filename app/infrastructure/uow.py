@@ -18,6 +18,7 @@ from app.infrastructure.resume_repository import SqlResumePointRepository
 from app.infrastructure.work_session_repository import SqlWorkSessionRepository
 from app.infrastructure.availability_exception_repository import SqlAvailabilityExceptionRepository
 from app.infrastructure.recurring_availability_repository import SqlRecurringAvailabilityRepository
+from app.infrastructure.weekly_schedule_repository import SqlWeeklyScheduleCommandRepository
 
 
 class SqlAlchemyUnitOfWork:
@@ -30,6 +31,7 @@ class SqlAlchemyUnitOfWork:
         self.availability = SqlAvailabilityRepository(self.session)
         self.recurring_availability = SqlRecurringAvailabilityRepository(self.session)
         self.availability_exceptions = SqlAvailabilityExceptionRepository(self.session)
+        self.weekly_commands = SqlWeeklyScheduleCommandRepository(self.session)
         self.time_blocks = SqlConfirmedTimeBlockRepository(self.session)
         self.daily_reviews = SqlDailyReviewRepository(self.session)
         self.weekly_reviews = SqlWeeklyReviewRepository(self.session)

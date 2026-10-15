@@ -22,6 +22,13 @@ class SqlConfirmedTimeBlockRepository:
         ).all()
         return [self._to_domain(row) for row in records]
 
+    def list_all_confirmed(self) -> list[ConfirmedTimeBlock]:
+        # Finite persisted bookings, not an infinite recurrence expansion.
+        records = self.session.scalars(select(ConfirmedTimeBlockRecord).where(
+            ConfirmedTimeBlockRecord.status == "CONFIRMED",
+        ).order_by(ConfirmedTimeBlockRecord.id)).all()
+        return [self._to_domain(row) for row in records]
+
     @staticmethod
     def _to_domain(row: ConfirmedTimeBlockRecord) -> ConfirmedTimeBlock:
         return ConfirmedTimeBlock(
