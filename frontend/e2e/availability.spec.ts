@@ -140,6 +140,23 @@ test("TP-023B : édition d'un lundi par aperçu et sauvegarde atomique", async (
   await expect(page.getByLabel("Lundi plage 1 début")).toHaveValue("07:15");
 });
 
+test("TP-023B : copie ciblée après aperçu local, puis aperçu serveur groupé", async ({ page }) => {
+  await page.getByRole("button", { name: "Ajouter une plage au Lundi" }).click();
+  await page.getByLabel("Lundi plage 1 début").fill("11:00");
+  await page.getByLabel("Lundi plage 1 fin").fill("12:00");
+  await page.getByRole("group", { name: "Copier la journée" })
+    .getByLabel("Mardi").check();
+  await page.getByRole("button", { name: "Préparer la copie" }).click();
+  await expect(page.getByText("Remplacements dans le brouillon (aucune sauvegarde)")).toBeVisible();
+  await page.getByRole("button", { name: "Appliquer la copie au brouillon" }).click();
+  await expect(page.getByLabel("Mardi plage 1 début")).toHaveValue("11:00");
+  const preview = page.waitForRequest((request) => request.url().endsWith("/weekly-schedule/preview") &&
+    request.method() === "POST");
+  await page.getByRole("button", { name: "Prévisualiser les changements" }).click();
+  const body = (await preview).postDataJSON();
+  expect(body.sections.map((cell: { weekday: number }) => cell.weekday).sort()).toEqual([0, 1]);
+});
+
 test("une règle hebdomadaire se crée par API depuis la vue desktop", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chromium", "Scénario desktop.");
   await expect(page.getByRole("heading", { name: "Disponibilités" })).toBeVisible();
