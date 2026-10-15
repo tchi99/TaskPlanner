@@ -87,6 +87,8 @@ def revise_rule(
                 raise ValueError("revision settings required")
             revision = RuleRevision(rule_id=rule_id, number=expected_version + 1, **fields)
         _ensure_future(revision)
+        if any(rev.supersedes_future for rev in current.revisions):
+            raise RuleConflict("series has been superseded by a weekly edit")
         if revision.effective_from <= current.revisions[-1].effective_from:
             raise ValueError("new revision must start after the previous effective date")
         _check_work_type(uow, revision)

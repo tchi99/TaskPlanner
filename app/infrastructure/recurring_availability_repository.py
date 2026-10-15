@@ -27,6 +27,7 @@ class SqlRecurringAvailabilityRepository:
             kind=RuleKind(row.kind), work_type_id=UUID(row.work_type_id) if row.work_type_id else None,
             mode=AvailabilityMode(row.mode) if row.mode else None,
             enabled=row.enabled, start_fold=row.start_fold, end_fold=row.end_fold,
+            supersedes_future=row.supersedes_future,
         )
 
     def _assemble(self, row: RecurringAvailabilityRuleRecord) -> RecurringAvailabilityRule:
@@ -66,6 +67,7 @@ class SqlRecurringAvailabilityRepository:
             work_type_id=str(value.work_type_id) if value.work_type_id else None,
             mode=value.mode.value if value.mode else None,
             enabled=value.enabled, start_fold=value.start_fold, end_fold=value.end_fold,
+            supersedes_future=value.supersedes_future,
             recorded_at=datetime.now(timezone.utc),
         ))
 

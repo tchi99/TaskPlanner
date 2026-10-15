@@ -33,7 +33,7 @@ def test_upgrade_preserves_legacy_booking_and_downgrade_guard(tmp_path):
     with sqlite3.connect(db) as connection:
         assert connection.execute(
             "SELECT version_num FROM alembic_version",
-        ).fetchone() == ("0014_tp022r",)
+        ).fetchone() == ("0015_tp023a",)
         assert connection.execute(
             "SELECT id, status, revision FROM confirmed_time_blocks",
         ).fetchone() == (identity, "CONFIRMED", 1)
