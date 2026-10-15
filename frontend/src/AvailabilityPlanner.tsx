@@ -442,8 +442,10 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
       {loading ? <p role="status">Chargement des disponibilités…</p> : tab === "rules" ? (
         <div className="availabilityStack">
           <WeeklyScheduleEditor workTypes={workTypes} zone={zone} onSaved={reload} />
+          <details className="availabilityLegacy">
+            <summary>Gestion avancée des anciennes séries et règles</summary>
           <section className="availabilityCard">
-            <p className="muted">Gestion avancée des séries existantes. Pour modifier plusieurs jours ou plages en une seule transaction, utilise la grille ci-dessus.</p>
+            <p className="muted">Édition historique règle par règle. Pour une copie ou plusieurs changements atomiques, utilise la grille ci-dessus.</p>
             <h3>Règles hebdomadaires</h3>
             <p className="muted">Une enveloppe générale et des plages de travail catégorisées ne s'additionnent pas. Protégée interdit le placement ordinaire d'un autre type; préférentielle permet seulement une proposition motivée.</p>
             {rules.length === 0 ? <p className="empty">Aucune règle habituelle. Commence par une enveloppe générale.</p> : (
@@ -518,6 +520,7 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
                 {editingRule && <button type="button" onClick={() => { setEditingRule(null); setRuleDraft(initialRule); }}>Annuler</button>}</div>
             </form>
           </section>
+          </details>
         </div>
       ) : (
         <div className="availabilityStack">
