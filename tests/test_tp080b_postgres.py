@@ -315,3 +315,64 @@ def test_tp022b_exception_preview_persistence_and_audit_in_postgres(postgres_eng
             "SELECT COUNT(*) FROM history_events "
             "WHERE entity_type = 'AVAILABILITY_EXCEPTION' AND entity_id = :id"
         ), {"id": str(made.id)}) == 2
+
+
+def test_tp023a_atomic_weekly_edit_on_private_postgres(postgres_engine):
+    """Multi-day split, idempotent receipt and temporal revision in PostgreSQL."""
+    from app.application.recurring_availability import create_rule, revise_rule
+    from app.application.weekly_schedule import (
+        WeeklyDraft, Section, Slot, preview_weekly, confirm_weekly,
+    )
+    from app.domain.recurring_availability import RuleKind, expand_rules
+
+    factory = sessionmaker(bind=postgres_engine, autoflush=False, expire_on_commit=False)
+    owner = "tp023a-pg-owner"
+    effect = datetime.now(__import__("zoneinfo").ZoneInfo("America/Toronto")).date() + timedelta(days=21)
+    while effect.weekday() != 0:
+        effect += timedelta(days=1)
+    fields = {
+        "effective_from": effect, "valid_until": None, "timezone_name": "America/Toronto",
+        "days_of_week": (0, 1, 2), "starts_at_local": "09:00",
+        "ends_at_local": "10:00", "kind": RuleKind.GENERAL,
+        "work_type_id": None, "mode": None, "enabled": True,
+        "start_fold": None, "end_fold": None,
+    }
+    original = create_rule(SqlAlchemyUnitOfWork(factory), owner, fields)
+    later = effect + timedelta(days=28)
+    revised = revise_rule(SqlAlchemyUnitOfWork(factory), owner, original.id, 1, {
+        **fields, "effective_from": later, "starts_at_local": "10:00",
+        "ends_at_local": "11:00",
+    })
+    draft = WeeklyDraft(
+        effect + timedelta(days=7), "America/Toronto",
+        (Section(1, RuleKind.GENERAL, None, (Slot("13:00", "14:00"),)),),
+        {str(original.id): revised.version},
+    )
+    token = preview_weekly(SqlAlchemyUnitOfWork(factory), owner, draft)
+    assert token["has_changes"] and len(token["derived_rule_ids"]) == 2
+    command_id = uuid4()
+    receipt = confirm_weekly(SqlAlchemyUnitOfWork(factory), owner, draft,
+                             command_id=command_id, fingerprint=token["fingerprint"],
+                             confirmed=True, acknowledge_conflicts=False)
+    replay = confirm_weekly(SqlAlchemyUnitOfWork(factory), owner, draft,
+                            command_id=command_id, fingerprint=token["fingerprint"],
+                            confirmed=True, acknowledge_conflicts=False)
+    assert receipt == replay
+    with SqlAlchemyUnitOfWork(factory) as uow:
+        rules = tuple(uow.recurring_availability.list_owner(owner))
+        assert len(rules) == 4
+        occurrences, problems = expand_rules(rules, later, later+timedelta(days=3))
+        assert not problems
+        assert len(occurrences) == 3
+        by_weekday = {occ.original_local_date.weekday(): occ for occ in occurrences}
+        assert {day: occ.starts_at.astimezone(
+            __import__("zoneinfo").ZoneInfo("America/Toronto")
+        ).hour for day, occ in by_weekday.items()} == {0: 10, 1: 13, 2: 10}
+    with Session(postgres_engine) as session:
+        assert session.scalar(text(
+            "SELECT COUNT(*) FROM weekly_schedule_commands WHERE owner_id = :owner"
+        ), {"owner": owner}) == 1
+        assert session.scalar(text(
+            "SELECT COUNT(*) FROM recurring_availability_revisions "
+            "WHERE rule_id = :id AND supersedes_future"
+        ), {"id": str(original.id)}) == 1
