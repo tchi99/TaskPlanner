@@ -312,12 +312,32 @@ export function WeeklyScheduleEditor({ workTypes, zone, onSaved }: {
                   aria-label={"Retirer la plage " + (index + 1) + " du " + dayName}
                   onClick={() => modify(day, daySlots.filter((value) => value.id !== slot.id))}>− Retirer</button>
               </div>
-              {(slot.start_fold !== null || slot.end_fold !== null) && <p className="muted">
-                DST : début {slot.start_fold ?? "auto"}, fin {slot.end_fold ?? "auto"}.
-                <button type="button" disabled={busy}
-                  onClick={() => changeSlot(day, slot.id, { start_fold: null, end_fold: null })}>
-                  Réinitialiser DST</button>
-              </p>}
+              <details className="weeklyDst">
+                <summary>Transitions DST · {slot.start_fold === null && slot.end_fold === null ?
+                  "automatique" : "choix explicite"}</summary>
+                <div className="weeklyTimeFields">
+                  <label>Début (fold)
+                    <select aria-label={dayName + " plage " + (index + 1) + " début DST"}
+                      disabled={busy} value={slot.start_fold === null ? "" : String(slot.start_fold)}
+                      onChange={(event) => changeSlot(day, slot.id, {
+                        start_fold: event.target.value === "" ? null : Number(event.target.value),
+                      })}>
+                      <option value="">Automatique</option>
+                      <option value="0">Premier instant</option><option value="1">Second instant</option>
+                    </select>
+                  </label>
+                  <label>Fin (fold)
+                    <select aria-label={dayName + " plage " + (index + 1) + " fin DST"}
+                      disabled={busy} value={slot.end_fold === null ? "" : String(slot.end_fold)}
+                      onChange={(event) => changeSlot(day, slot.id, {
+                        end_fold: event.target.value === "" ? null : Number(event.target.value),
+                      })}>
+                      <option value="">Automatique</option>
+                      <option value="0">Premier instant</option><option value="1">Second instant</option>
+                    </select>
+                  </label>
+                </div>
+              </details>
             </div>)}
             {!active && <p className="empty">Jour désactivé pour cette section.</p>}
             <button type="button" disabled={busy || daySlots.length >= 30}
