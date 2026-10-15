@@ -257,3 +257,33 @@ def test_real_competing_sqlite_confirmations_only_one_commits(runtime):
     assert sorted(codes) == [200, 409]
     with factory() as session:
         assert session.scalar(select(func.count()).select_from(WeeklyScheduleCommandRecord)) == 1
+
+
+def test_dst_nonexistent_civil_time_is_reported_and_never_silently_applied(runtime):
+    client, factory = runtime
+    start = monday()
+    # Toronto's next spring DST gap after the 2026-10-15 task date.
+    gap = __import__("datetime").date(2027, 3, 14)
+    body = draft(client, gap, [slot("02:30", "03:30")], weekday=6)
+    token = preview(client, body)
+    assert any(issue["reason"] == "NONEXISTENT_LOCAL_TIME"
+               for issue in token["civil_time_issues"])
+    response = confirm(client, body, token)
+    assert response.status_code == 422
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(
+            WeeklyScheduleCommandRecord)) == 0
+
+
+def test_read_grid_includes_stable_rule_sources(runtime):
+    client, _ = runtime
+    start = monday()
+    created = rule(client, start, weekdays=(1,))
+    fetched = client.get(ROOT, params={
+        "effective_from": str(start), "timezone_name": ZONE,
+    })
+    assert fetched.status_code == 200
+    cell = next(v for v in fetched.json()["sections"] if v["weekday"] == 1)
+    assert cell["slots"][0]["sources"] == [{
+        "rule_id": created["id"], "revision": 1,
+    }]

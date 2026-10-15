@@ -443,7 +443,20 @@ def read_weekly(uow: UnitOfWork, owner: str, effect: date, zone: str):
             "source_versions": {str(r.id): r.version for r in rules},
             "sections": [{"weekday": key[0], "kind": key[1].value,
                           "work_type_id": str(key[2]) if key[2] else None,
-                          "slots": [asdict(s) for s in slots]}
+                          "slots": [
+                              {**asdict(slot), "sources": [
+                                  {"rule_id": str(rule.id), "revision": rev.number}
+                                  for rule in rules if (rev := _active(rule, effect)) is not None
+                                  and key[0] in rev.days_of_week and rev.kind is key[1]
+                                  and rev.work_type_id == key[2]
+                                  and rev.timezone_name == key[3]
+                                  and (rev.starts_at_local, rev.ends_at_local,
+                                       rev.mode, rev.start_fold, rev.end_fold) == (
+                                      slot.starts_at_local, slot.ends_at_local,
+                                      slot.mode, slot.start_fold, slot.end_fold)
+                              ]}
+                              for slot in slots
+                          ]}
                          for key, slots in sorted(by_key.items(), key=lambda x: _key_str(x[0]))],
             "future_revisions": [
                 {"rule_id": str(r.id), "number": rev.number,
@@ -480,6 +493,8 @@ def confirm_weekly(uow: UnitOfWork, owner: str, draft: WeeklyDraft, *,
             raise ValueError("resolve future exceptions explicitly before saving")
         if preview["invalid_conflicts"]:
             raise ValueError("weekly edit creates invalid category/envelope conflicts")
+        if preview["civil_time_issues"]:
+            raise ValueError("weekly schedule contains invalid or ambiguous civil-time occurrences")
         if any(c["new"] for c in preview["booking_conflicts"]) and not acknowledge_conflicts:
             raise ValueError("acknowledge new booking conflicts before confirmation")
         correlation = uuid4()
