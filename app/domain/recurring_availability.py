@@ -48,6 +48,7 @@ class RuleRevision:
     enabled: bool = True
     start_fold: int | None = None
     end_fold: int | None = None
+    supersedes_future: bool = False
 
     def __post_init__(self) -> None:
         if self.number < 1:
@@ -92,9 +93,8 @@ class RecurringAvailabilityRule:
         if any(rev.rule_id != self.id or rev.number != i
                for i, rev in enumerate(self.revisions, start=1)):
             raise ValueError("revision identity/order mismatch")
-        if any(a.effective_from >= b.effective_from
-               for a, b in zip(self.revisions, self.revisions[1:])):
-            raise ValueError("revisions must progress by effective date")
+        # Ordinal is the immutable recording order; effective dates may repeat
+        # or precede already-programmed future revisions (ADR-0022).
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,10 +155,14 @@ def expand_rules(
         for i in range(days):
             day = from_date + timedelta(days=i)
             applicable = [rev for rev in rule.revisions if rev.effective_from <= day]
+            # A terminal cutover permanently supersedes the old timeline,
+            # including later-dated revisions already recorded on that series.
+            if any(rev.supersedes_future for rev in applicable):
+                continue
             if not applicable:
                 continue
             # Expiry of the newest revision never resurrects an older schedule.
-            rev = applicable[-1]
+            rev = max(applicable, key=lambda v: (v.effective_from, v.number))
             if ((rev.valid_until is not None and day >= rev.valid_until)
                     or not rev.enabled or day.weekday() not in rev.days_of_week):
                 continue

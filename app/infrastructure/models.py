@@ -365,7 +365,6 @@ class RecurringAvailabilityRevisionRecord(Base):
     __tablename__ = "recurring_availability_revisions"
     __table_args__ = (
         UniqueConstraint("rule_id", "number", name="uq_recurring_revision_number"),
-        UniqueConstraint("rule_id", "effective_from", name="uq_recurring_revision_effective"),
         CheckConstraint("number > 0", name="ck_recurring_revisions_number"),
         CheckConstraint("kind IN ('GENERAL','CATEGORIZED')", name="ck_recurring_revisions_kind"),
         CheckConstraint("mode IS NULL OR mode IN ('PROTECTED','PREFERRED')",
@@ -399,6 +398,7 @@ class RecurringAvailabilityRevisionRecord(Base):
     start_fold: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     end_fold: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     recorded_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    supersedes_future: Mapped[bool] = mapped_column(nullable=False, default=False)
 
 
 class AvailabilityExceptionRecord(Base):
@@ -437,3 +437,15 @@ class AvailabilityExceptionRecord(Base):
     enabled: Mapped[bool] = mapped_column(nullable=False)
     reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class WeeklyScheduleCommandRecord(Base):
+    """Owner-scoped durable idempotency receipt for weekly atomic commands."""
+    __tablename__ = "weekly_schedule_commands"
+    __table_args__ = (Index("ix_weekly_commands_owner", "owner_id"),)
+
+    owner_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    command_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    result: Mapped[dict] = mapped_column(JSON(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)

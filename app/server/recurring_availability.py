@@ -64,6 +64,7 @@ class ReviseRuleRequest(RuleSettings):
 
 class RevisionResponse(RuleSettings):
     number: int
+    supersedes_future: bool = False
 
 
 class RuleResponse(BaseModel):
@@ -82,6 +83,7 @@ class RuleResponse(BaseModel):
                 ends_at_local=rev.ends_at_local, kind=rev.kind,
                 work_type_id=rev.work_type_id, mode=rev.mode,
                 enabled=rev.enabled, start_fold=rev.start_fold, end_fold=rev.end_fold,
+                supersedes_future=rev.supersedes_future,
             ) for rev in value.revisions],
         )
 
