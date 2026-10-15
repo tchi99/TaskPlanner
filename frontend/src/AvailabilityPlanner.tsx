@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { apiFetch } from "./auth";
 import "./availability.css";
+import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
 
 type WorkType = { id: string; name: string };
 type Mode = "PROTECTED" | "PREFERRED";
@@ -440,7 +441,9 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
       {notice && <p role="status" className="availabilityNotice">{notice}</p>}
       {loading ? <p role="status">Chargement des disponibilités…</p> : tab === "rules" ? (
         <div className="availabilityStack">
+          <WeeklyScheduleEditor workTypes={workTypes} zone={zone} onSaved={reload} />
           <section className="availabilityCard">
+            <p className="muted">Gestion avancée des séries existantes. Pour modifier plusieurs jours ou plages en une seule transaction, utilise la grille ci-dessus.</p>
             <h3>Règles hebdomadaires</h3>
             <p className="muted">Une enveloppe générale et des plages de travail catégorisées ne s'additionnent pas. Protégée interdit le placement ordinaire d'un autre type; préférentielle permet seulement une proposition motivée.</p>
             {rules.length === 0 ? <p className="empty">Aucune règle habituelle. Commence par une enveloppe générale.</p> : (
