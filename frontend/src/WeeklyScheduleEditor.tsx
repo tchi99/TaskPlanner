@@ -88,8 +88,9 @@ async function callApi<T>(url: string, options?: RequestInit): Promise<T> {
   return await response.json() as T;
 }
 
-export function WeeklyScheduleEditor({ workTypes, zone, onSaved }: {
+export function WeeklyScheduleEditor({ workTypes, zone, onSaved, onDirtyChange }: {
   workTypes: WorkType[]; zone: string; onSaved: () => Promise<void>;
+  onDirtyChange: (value: boolean) => void;
 }) {
   const [effectiveFrom, setEffectiveFrom] = useState(() => addCivilDays(civilDayInZone(zone), 1));
   const [grid, setGrid] = useState<GridResponse | null>(null);
@@ -107,6 +108,8 @@ export function WeeklyScheduleEditor({ workTypes, zone, onSaved }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  useEffect(() => { onDirtyChange(dirty.length > 0); }, [dirty.length, onDirtyChange]);
+  useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
 
   const kind: Kind = selectedType === "GENERAL" ? "GENERAL" : "CATEGORIZED";
   const typeId = kind === "GENERAL" ? null : selectedType;
