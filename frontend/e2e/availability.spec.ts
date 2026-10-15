@@ -218,6 +218,7 @@ test("l'horaire habituel annule seulement la réservation datée, sans toucher l
   await page.getByRole("button", { name: "Confirmer cette décision" }).click();
   await expect(page.getByText("Aucune réservation locale active sur la semaine.")).toBeVisible();
   await page.getByRole("button", { name: "Horaire habituel" }).click();
+  await page.getByText("Gestion avancée des anciennes séries et règles").click();
   await expect(page.getByRole("heading", { name: "Règles hebdomadaires" })).toBeVisible();
   await expect(page.getByText("Aucune règle habituelle.")).toBeVisible();
   await page.getByRole("button", { name: "Semaine suivante" }).click();
