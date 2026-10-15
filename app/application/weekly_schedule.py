@@ -266,10 +266,6 @@ def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
                        key[2], key[3], slot)
             additions[rule_id] = (_make_rule(rule_id, owner, [rev]), None)
     before_ids = set(affected)
-    pending_rules = tuple(
-        (*r.revisions, terminal) if r.id in before_ids else r.revisions
-        for r in rules for _, terminal in ([affected[r.id]] if r.id in before_ids else [(None, None)])
-    )
     # Only rule snapshots (not the precomputed tuple above) reach the projector.
     revised = tuple(_make_rule(r.id, r.owner_id,
                               list(r.revisions)+[affected[r.id][1]])
@@ -395,6 +391,11 @@ def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
         "before_declared_minutes_93d": before.declared_minutes,
         "after_declared_minutes_93d": after.declared_minutes,
         "projection_days": 93,
+        "civil_time_issues": [
+            {"rule_id": str(v.rule_id), "revision": v.revision,
+             "date": v.original_local_date.isoformat(), "reason": v.reason}
+            for v in after.expansion_issues
+        ],
         "calendar_verified": False,
         "has_changes": bool(modified),
     }
