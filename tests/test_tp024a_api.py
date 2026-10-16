@@ -341,7 +341,9 @@ def test_tp024c_parent_rename_preserves_leaf_membership_and_physical_capacity(ru
                for row in catalog["affiliations"])
     after = projection(client, day)
     assert after["declared_minutes"] == before["declared_minutes"]
-    assert sorted((b["scope_id"], b["work_type_id"], b["minutes"])
-                  for b in after["blocks"]) == sorted(
-                      (b["scope_id"], b["work_type_id"], b["minutes"])
-                      for b in before["blocks"])
+    def bucket_totals(blocks):
+        return sorted(
+            ((b["scope_id"], b["work_type_id"], b["minutes"]) for b in blocks),
+            key=lambda row: (str(row[0]), str(row[1]), row[2]),
+        )
+    assert bucket_totals(after["blocks"]) == bucket_totals(before["blocks"])
