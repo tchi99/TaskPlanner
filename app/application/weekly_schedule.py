@@ -138,6 +138,13 @@ def _validate(draft: WeeklyDraft, uow: UnitOfWork, owner: str) -> dict:
             raise ValueError("GENERAL section must use the NULL compartment")
         if section.kind is RuleKind.CATEGORIZED and section.work_type_id not in valid_types:
             raise ValueError("categorized section must reference an existing WorkType")
+        if section.scope_id is None and section.kind is RuleKind.CATEGORIZED and section.slots:
+            if effective_scope(
+                section.work_type_id, draft.effective_from,
+                uow.schedule_scopes.affiliations(owner),
+                compatibility_scope_id(owner),
+            ) != compatibility_scope_id(owner):
+                raise ValueError("legacy cells cannot create categorized intervals outside compatibility")
         if section.scope_id is not None:
             scope = uow.schedule_scopes.get(owner, section.scope_id)
             if scope is None or scope.is_compatibility or scope.state != "ACTIVE":

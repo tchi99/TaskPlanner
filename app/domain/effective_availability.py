@@ -246,7 +246,7 @@ def project_effective(
         matching = sorted(
             (v for v in blocks if (
                 (v.work_type_id == booking.work_type_id
-                 and (booking.scope_id is None or v.scope_id == booking.scope_id))
+                 and (v.scope_id == (booking.scope_id or compatibility_id)))
                 or (booking.transferred_from is not None
                     and v.work_type_id == booking.transferred_from
                     and v.mode is AvailabilityMode.PREFERRED

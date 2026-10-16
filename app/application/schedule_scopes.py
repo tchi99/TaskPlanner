@@ -153,8 +153,16 @@ def _plan(uow: UnitOfWork, owner: str, draft: AffiliationDraft):
                                "reason": "future/terminal revisions require a weekly batch decision"})
             continue
         active = max(present, key=lambda r: (r.effective_from, r.number))
-        if active.kind is not RuleKind.CATEGORIZED or active.work_type_id != draft.work_type_id:
-            raise ValueError("remap must target a categorized series of this WorkType")
+        if active.kind is RuleKind.CATEGORIZED:
+            if active.work_type_id != draft.work_type_id:
+                raise ValueError("remap must target this WorkType's categorized series")
+        elif active.kind is RuleKind.GENERAL:
+            # Moving the containing GENERAL envelope is explicit, never an
+            # implied consequence of relocating one WorkType.
+            if active.scope_id is not None:
+                raise ValueError("general envelope must be a legacy source to migrate")
+        else:
+            raise ValueError("unsupported source series kind")
         remapped[rule.id] = replace(active, number=rule.version+1,
                                     effective_from=draft.effective_from,
                                     valid_until=None, scope_id=draft.scope_id)
@@ -267,6 +275,8 @@ def _plan(uow: UnitOfWork, owner: str, draft: AffiliationDraft):
             {"rule_id": str(i.rule_id), "date": str(i.original_local_date),
              "reason": i.reason} for i in new.expansion_issues],
         "rules_inventory": inventory, "exceptions_inventory": pending_exceptions,
+        "explicit_general_envelope_remaps": [str(rule.id) for rule in rules
+            if rule.id in remapped and remapped[rule.id].kind is RuleKind.GENERAL],
         "manual_blocks_inventory": affected_manual,
         "all_future_bookings": future_bookings,
         "unresolved_rule_migrations": unresolved,
