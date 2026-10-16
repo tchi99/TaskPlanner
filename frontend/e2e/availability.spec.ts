@@ -3,6 +3,16 @@ import { expect, test, type Page } from "@playwright/test";
 async function mockApi(page: Page) {
   let rule: object | null = null;
   let weeklySections: unknown[] = [];
+  const compatibilityScope = "22222222-2222-4222-8222-222222222222";
+  const workScope = "11111111-1111-4111-8111-111111111111";
+  const personalScope = "33333333-3333-4333-8333-333333333333";
+  let scopes = [
+    { id: compatibilityScope, name: "Compatibilité", version: 1, state: "ACTIVE", is_compatibility: true },
+    { id: workScope, name: "Travail", version: 1, state: "ACTIVE", is_compatibility: false },
+    { id: personalScope, name: "Personnel", version: 1, state: "ACTIVE", is_compatibility: false },
+  ];
+  let affiliations: { work_type_id: string; scope_id: string; effective_from: string; version: number }[] = [];
+  let workTypes = [{ id: "focus-type", name: "Concentration" }];
   let confirmed = false;
   let cancelled = false;
   let bookedWeek: string | null = null;
@@ -27,7 +37,52 @@ async function mockApi(page: Page) {
       starts_at: start, ends_at: end, revision: confirmed ? 2 : 1, status: "CONFIRMED" };
     if (path === "/api/tasks") return respond([]);
     if (path === "/api/projects") return respond([]);
-    if (path === "/api/work-types") return respond([{ id: "focus-type", name: "Concentration" }]);
+    if (path === "/api/work-types") {
+      if (request.method() === "POST") {
+        const value = request.postDataJSON();
+        const created = { id: "leaf-" + (workTypes.length + 1), name: value.name };
+        workTypes = [...workTypes, created];
+        return respond(created, 201);
+      }
+      return respond(workTypes);
+    }
+    if (path === "/api/schedule-scopes") {
+      if (request.method() === "POST") {
+        const created = { id: "44444444-4444-4444-8444-444444444444",
+          name: request.postDataJSON().name, version: 1, state: "ACTIVE", is_compatibility: false };
+        scopes = [...scopes, created]; return respond(created, 201);
+      }
+      return respond({ scopes, compatibility_scope_id: compatibilityScope, affiliations,
+        affiliation_versions: Object.fromEntries(affiliations.map((item) =>
+          [item.work_type_id, item.version])), legacy_unassigned_work_type_ids:
+          workTypes.filter((item) => !affiliations.some((a) => a.work_type_id === item.id))
+            .map((item) => item.id) });
+    }
+    if (path.startsWith("/api/schedule-scopes/") && request.method() === "PATCH") {
+      const id = path.split("/")[3];
+      const body = request.postDataJSON();
+      scopes = scopes.map((item) => item.id === id ?
+        { ...item, name: body.name, state: body.state, version: item.version + 1 } : item);
+      return respond(scopes.find((item) => item.id === id));
+    }
+    if (path === "/api/schedule-scopes/affiliations/preview") {
+      const draft = request.postDataJSON();
+      return respond({ fingerprint: "b".repeat(64), has_changes: true,
+        projection_days: 93, from_scope_id: compatibilityScope, to_scope_id: draft.scope_id,
+        before_minutes_93d: { [compatibilityScope]: 60 }, after_minutes_93d: { [draft.scope_id]: 60 },
+        global_before_minutes_93d: 60, global_after_minutes_93d: 60,
+        conflicts: [], civil_time_issues: [], unresolved_rule_migrations: [],
+        rules_inventory: [], exceptions_inventory: [], manual_blocks_inventory: [],
+        all_future_bookings: [], explicitly_remapped_rule_ids: [] });
+    }
+    if (path === "/api/schedule-scopes/affiliations/confirm") {
+      const draft = request.postDataJSON();
+      if (!draft.confirmed || draft.fingerprint !== "b".repeat(64))
+        return respond({ detail: "confirmation invalid" }, 422);
+      affiliations = [...affiliations, { work_type_id: draft.work_type_id,
+        scope_id: draft.scope_id, effective_from: draft.effective_from, version: 1 }];
+      return respond({ applied: true, calendar_written: false });
+    }
     if (path === "/api/availability/weekly-schedule") {
       return respond({
         effective_from: url.searchParams.get("effective_from"), timezone_name:
@@ -539,4 +594,66 @@ test("TP-023D : conflit structurel préexistant seul n'interdit pas la réparati
   await page.getByRole("button", { name: "Prévisualiser les changements" }).click();
   await expect(page.getByText("Conflit déjà présent")).toBeVisible();
   await expect(page.getByRole("button", { name: "Confirmer et enregistrer l'horaire futur" })).toBeEnabled();
+});
+
+test("TP-024B : enveloppe hebdomadaire isolée au parent Travail", async ({ page }) => {
+  await page.getByLabel("Catégorie parente de l'horaire").selectOption(
+    "11111111-1111-4111-8111-111111111111");
+  const gridRequest = page.waitForRequest((value) =>
+    value.url().includes("weekly-schedule?") &&
+    value.url().includes("scope_id=11111111-1111-4111-8111-111111111111"));
+  await page.getByRole("button", { name: "Actualiser la grille" }).click();
+  await gridRequest;
+  await page.getByRole("button", { name: "Ajouter une plage au Lundi" }).click();
+  const preview = page.waitForRequest((value) => value.url().endsWith("/weekly-schedule/preview"));
+  await page.getByRole("button", { name: "Prévisualiser les changements" }).click();
+  const payload = (await preview).postDataJSON();
+  expect(payload.sections).toMatchObject([{
+    weekday: 0, kind: "GENERAL", work_type_id: null,
+    scope_id: "11111111-1111-4111-8111-111111111111",
+  }]);
+  await expect(page.getByText(/Capacité déclarée sur 93 jours/)).toBeVisible();
+});
+
+test("TP-024B : rattachement daté avec aperçu et confirmation explicites", async ({ page }) => {
+  await page.getByLabel("Sous-catégorie", { exact: true }).selectOption("focus-type");
+  await page.getByLabel("Catégorie cible").selectOption("11111111-1111-4111-8111-111111111111");
+  const preview = page.waitForRequest((value) =>
+    value.url().endsWith("/affiliations/preview") && value.method() === "POST");
+  await page.getByRole("button", { name: "Prévisualiser le rattachement" }).click();
+  const draft = (await preview).postDataJSON();
+  expect(draft).toMatchObject({
+    work_type_id: "focus-type", scope_id: "11111111-1111-4111-8111-111111111111",
+    expected_affiliation_version: 0, expected_scope_version: 1, remap_rule_ids: [],
+  });
+  const confirm = page.waitForRequest((value) =>
+    value.url().endsWith("/affiliations/confirm") && value.method() === "POST");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Confirmer le rattachement futur" }).click();
+  expect((await confirm).postDataJSON()).toMatchObject({
+    ...draft, fingerprint: "b".repeat(64), confirmed: true, acknowledge_bookings: false,
+  });
+  await expect(page.getByText(/Rattachement futur confirmé atomiquement/)).toBeVisible();
+});
+
+test("TP-024B : conflit interparent nouveau bloque la confirmation", async ({ page }) => {
+  await page.route("**/api/schedule-scopes/affiliations/preview", (route) =>
+    route.fulfill({ contentType: "application/json", body: JSON.stringify({
+      fingerprint: "c".repeat(64), has_changes: true, projection_days: 93,
+      from_scope_id: "22222222-2222-4222-8222-222222222222",
+      to_scope_id: "11111111-1111-4111-8111-111111111111",
+      before_minutes_93d: {}, after_minutes_93d: {},
+      global_before_minutes_93d: 60, global_after_minutes_93d: 60,
+      conflicts: [{ code: "INCOMPATIBLE_SCOPES", status: "NEW",
+        starts_at: "2026-10-20T13:00:00Z", ends_at: "2026-10-20T14:00:00Z",
+        scope_ids: ["11111111-1111-4111-8111-111111111111",
+          "33333333-3333-4333-8333-333333333333"], sources: ["RULE:abc"] }],
+      civil_time_issues: [], unresolved_rule_migrations: [], rules_inventory: [],
+      exceptions_inventory: [], manual_blocks_inventory: [], all_future_bookings: [],
+    }) }));
+  await page.getByLabel("Sous-catégorie", { exact: true }).selectOption("focus-type");
+  await page.getByLabel("Catégorie cible").selectOption("11111111-1111-4111-8111-111111111111");
+  await page.getByRole("button", { name: "Prévisualiser le rattachement" }).click();
+  await expect(page.getByText(/Nouveau — bloquant/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Confirmer le rattachement futur" })).toBeDisabled();
 });
