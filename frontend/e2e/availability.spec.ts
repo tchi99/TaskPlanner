@@ -679,6 +679,19 @@ test("TP-024C : réservations futures conservées avec consentement explicite", 
       rules_inventory: [], exceptions_inventory: [], manual_blocks_inventory: [],
       all_future_bookings: [preserved],
     }) }));
+  // The shared API mock validates fingerprint "b"; this preview deliberately
+  // issues "d". Model the successful acknowledged confirmation for this case.
+  await page.route("**/api/schedule-scopes/affiliations/confirm", (route) => {
+    const payload = route.request().postDataJSON();
+    const accepted = payload.confirmed === true && payload.acknowledge_bookings === true &&
+      payload.fingerprint === "d".repeat(64);
+    return route.fulfill({
+      status: accepted ? 200 : 422, contentType: "application/json",
+      body: JSON.stringify(accepted ?
+        { applied: true, calendar_written: false } :
+        { detail: "explicit booking acknowledgement required" }),
+    });
+  });
   await page.getByRole("combobox", { name: "Sous-catégorie", exact: true })
     .selectOption("focus-type");
   await page.getByRole("combobox", { name: "Catégorie cible", exact: true })
@@ -693,12 +706,18 @@ test("TP-024C : réservations futures conservées avec consentement explicite", 
   await expect(confirmButton).toBeEnabled();
   const confirmation = page.waitForRequest((request) =>
     request.url().endsWith("/affiliations/confirm") && request.method() === "POST");
+  const acceptedResponse = page.waitForResponse((response) =>
+    response.url().endsWith("/affiliations/confirm") &&
+    response.request().method() === "POST");
   page.once("dialog", (dialog) => dialog.accept());
   await confirmButton.click();
   expect((await confirmation).postDataJSON()).toMatchObject({
     work_type_id: "focus-type", scope_id: workScope,
     confirmed: true, acknowledge_bookings: true, fingerprint: "d".repeat(64),
   });
+  const accepted = await acceptedResponse;
+  expect(accepted.status()).toBe(200);
+  expect(await accepted.json()).toMatchObject({ applied: true, calendar_written: false });
   await expect(page.getByText(/Aucune réservation ni événement Google déplacé/)).toBeVisible();
 });
 
