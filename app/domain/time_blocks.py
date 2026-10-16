@@ -84,6 +84,7 @@ def _free_intervals(
     blocks: Sequence[AvailabilityBlock],
     events: Sequence[CalendarCommitment],
     confirmed: Sequence[ConfirmedTimeBlock],
+    *, partition_scopes: bool = False,
 ) -> dict[UUID | None, list[list[int]]]:
     """Cut occupied intervals conservatively, using actual UTC instants."""
     busy = [(_minute(e.starts_at), _minute(e.ends_at, round_up=True))
@@ -96,10 +97,12 @@ def _free_intervals(
         for start, end in sorted((max(lo, a), min(hi, b))
                                  for a, b in busy if a < hi and b > lo):
             if start > cursor:
-                free.setdefault(block.work_type_id, []).append([cursor, start])
+                free.setdefault((block.scope_id, block.work_type_id)
+                                if partition_scopes else block.work_type_id, []).append([cursor, start])
             cursor = max(cursor, end)
         if cursor < hi:
-            free.setdefault(block.work_type_id, []).append([cursor, hi])
+            free.setdefault((block.scope_id, block.work_type_id)
+                            if partition_scopes else block.work_type_id, []).append([cursor, hi])
     for intervals in free.values():
         intervals.sort()
     return free
@@ -144,7 +147,7 @@ def suggest_time_blocks(
         "offer_transfers": offer_transfers,
         "preferred": sorted(str(v.id) for v in preferred_blocks),
         "manual": sorted((str(b.id), b.starts_at.isoformat(), b.ends_at.isoformat(),
-                          str(b.work_type_id)) for b in manual_blocks),
+                          str(b.work_type_id), str(b.scope_id)) for b in manual_blocks),
         "calendar": sorted((c.calendar_id, c.event_id, c.starts_at.isoformat(),
                             c.ends_at.isoformat()) for c in commitments),
         "confirmed": sorted((str(b.id), str(b.task_id), str(b.segment_id),
@@ -207,6 +210,12 @@ def suggest_time_blocks(
             pending.append((task_id, segment_id, label, work_type, remaining, due_at))
     # All strict allocations happen first; only unused PREFERRED minutes may
     # be offered to another WorkType. PROTECTED, manual and NULL are never donors.
+    # V1 permits preferred transfers only between leaves of one and the
+    # same parent. A leaf belonging to multiple scopes in this week cannot
+    # be a donor or recipient until its dated cutover is resolved explicitly.
+    scope_types: dict[UUID | None, set[UUID | None]] = {}
+    for block in manual_blocks:
+        scope_types.setdefault(block.work_type_id, set()).add(block.scope_id)
     if offer_transfers and pending and preferred_blocks:
         tentative = tuple(ConfirmedTimeBlock(
             week_start, s.task_id, s.segment_id, s.work_type_id,
@@ -218,7 +227,12 @@ def suggest_time_blocks(
         for task_id, segment_id, label, work_type, remaining, due_at in pending:
             cutoff = _minute(due_at) if due_at is not None else None
             for donor in sorted(transferable, key=lambda v: str(v)):
-                if donor == work_type or donor is None:
+                if donor == work_type or donor is None or work_type is None:
+                    continue
+                donor_scopes = scope_types.get(donor, set())
+                target_scopes = scope_types.get(work_type, set())
+                if (len(donor_scopes) != 1 or len(target_scopes) != 1
+                        or donor_scopes != target_scopes):
                     continue
                 for interval in transferable[donor]:
                     if not remaining:

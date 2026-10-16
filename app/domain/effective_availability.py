@@ -195,8 +195,7 @@ def project_effective(
                 # An explicitly scoped declaration must match the dated leaf
                 # affiliation; a legacy rule stays in compatibility until
                 # explicitly migrated, not silently reinterpreted by its name.
-                if (affiliations and scope != compatibility_id and chosen is not None
-                        and any(item.scope_id is not None for item in claims)
+                if (compatibility_id is not None and chosen is not None
                         and effective_scope(chosen, claims[0].civil_date or from_date,
                                             tuple(affiliations), compatibility_id) != scope):
                     issues.append(EffectiveIssue("AFFILIATION_SCOPE_MISMATCH", start, end,
@@ -250,7 +249,8 @@ def project_effective(
                  and (booking.scope_id is None or v.scope_id == booking.scope_id))
                 or (booking.transferred_from is not None
                     and v.work_type_id == booking.transferred_from
-                    and v.mode is AvailabilityMode.PREFERRED)
+                    and v.mode is AvailabilityMode.PREFERRED
+                    and (booking.scope_id is None or v.scope_id == booking.scope_id))
              ) and v.starts_at < end and v.ends_at > start),
             key=lambda v: v.starts_at,
         )

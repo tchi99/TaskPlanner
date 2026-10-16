@@ -9,6 +9,7 @@ from app.application.uow import UnitOfWork
 from app.domain.recurring_availability import (
     RecurringAvailabilityRule, RuleConflict, RuleRevision, expand_rules,
 )
+from app.domain.schedule_scopes import compatibility_scope_id, effective_scope
 
 
 def _ensure_future(revision: RuleRevision) -> None:
@@ -45,6 +46,12 @@ def create_rule(
     with uow:
         uow.lock_planning()
         _check_work_type(uow, revision)
+        if (revision.scope_id is not None or
+                (revision.work_type_id is not None and effective_scope(
+                    revision.work_type_id, revision.effective_from,
+                    uow.schedule_scopes.affiliations(owner_id),
+                    compatibility_scope_id(owner_id)) != compatibility_scope_id(owner_id))):
+            raise ValueError("legacy API can only create rules in the compatibility scope")
         uow.recurring_availability.add(rule)
         uow.history.append(_audit(rule.id, 1, revision.effective_from, "AVAILABILITY_RULE_CREATED"))
         uow.commit()
@@ -54,14 +61,15 @@ def create_rule(
 def get_rule(uow: UnitOfWork, owner_id: str, rule_id: UUID) -> RecurringAvailabilityRule:
     with uow:
         rule = uow.recurring_availability.get(rule_id, owner_id)
-        if rule is None:
-            raise LookupError("recurring rule not found")
+        if rule is None or any(rev.scope_id is not None for rev in rule.revisions):
+            raise LookupError("legacy recurring rule not found")
         return rule
 
 
 def list_rules(uow: UnitOfWork, owner_id: str) -> tuple[RecurringAvailabilityRule, ...]:
     with uow:
-        return tuple(uow.recurring_availability.list_owner(owner_id))
+        return tuple(rule for rule in uow.recurring_availability.list_owner(owner_id)
+                     if all(rev.scope_id is None for rev in rule.revisions))
 
 
 def revise_rule(
@@ -73,8 +81,8 @@ def revise_rule(
     with uow:
         uow.lock_planning()
         current = uow.recurring_availability.get(rule_id, owner_id)
-        if current is None:
-            raise LookupError("recurring rule not found")
+        if current is None or any(rev.scope_id is not None for rev in current.revisions):
+            raise LookupError("legacy recurring rule not found")
         if current.version != expected_version:
             raise RuleConflict("recurring rule changed; reload before updating")
         if disable_from is not None:
@@ -92,6 +100,12 @@ def revise_rule(
         if revision.effective_from <= current.revisions[-1].effective_from:
             raise ValueError("new revision must start after the previous effective date")
         _check_work_type(uow, revision)
+        if (revision.scope_id is not None or
+                (revision.work_type_id is not None and effective_scope(
+                    revision.work_type_id, revision.effective_from,
+                    uow.schedule_scopes.affiliations(owner_id),
+                    compatibility_scope_id(owner_id)) != compatibility_scope_id(owner_id))):
+            raise ValueError("legacy rule revision is outside the compatibility scope")
         proposed = RecurringAvailabilityRule(
             current.id, current.owner_id, current.version + 1,
             (*current.revisions, revision),
@@ -128,5 +142,6 @@ def read_occurrences(
     if not 0 < days <= 93:
         raise ValueError("expansion requires 1 to 93 days")
     with uow:
-        rules = tuple(uow.recurring_availability.list_owner(owner_id))
+        rules = tuple(rule for rule in uow.recurring_availability.list_owner(owner_id)
+                      if all(rev.scope_id is None for rev in rule.revisions))
     return expand_rules(rules, from_date, to_date)

@@ -21,6 +21,7 @@ from app.application.uow import UnitOfWork
 from app.domain.model import SegmentStatus, TaskStatus
 from app.domain.recurring_availability import AvailabilityMode
 from app.domain.time_blocks import ConfirmedTimeBlock
+from app.domain.schedule_scopes import compatibility_scope_id
 
 Decision = Literal["CANCEL", "MOVE", "KEEP"]
 
@@ -48,16 +49,18 @@ def _overlaps(a: datetime, b: datetime, c: datetime, d: datetime) -> bool:
     return _utc(a) < _utc(d) and _utc(c) < _utc(b)
 
 
-def _covered(candidate: ConfirmedTimeBlock, projection) -> bool:
+def _covered(candidate: ConfirmedTimeBlock, projection, compatibility_id=None) -> bool:
     """Require the entire destination to be within compatible declarations."""
     cursor = _utc(candidate.starts_at)
     limit = _utc(candidate.ends_at)
     spans = sorted((
         b for b in projection.projection.blocks
-        if b.work_type_id == candidate.work_type_id
-        or (candidate.transferred_from is not None
-            and b.work_type_id == candidate.transferred_from
-            and b.mode is AvailabilityMode.PREFERRED)
+        if (candidate.scope_id is not None or compatibility_id is not None)
+        and b.scope_id == (candidate.scope_id or compatibility_id)
+        and (b.work_type_id == candidate.work_type_id
+             or (candidate.transferred_from is not None
+                 and b.work_type_id == candidate.transferred_from
+                 and b.mode is AvailabilityMode.PREFERRED))
     ), key=lambda b: b.starts_at)
     for span in spans:
         start, end = _utc(span.starts_at), _utc(span.ends_at)
@@ -117,6 +120,7 @@ def _prepare(
             segment_id=booking.segment_id, work_type_id=booking.work_type_id,
             starts_at=starts_at, ends_at=ends_at,
             transferred_from=booking.transferred_from,
+            scope_id=booking.scope_id,
         )
         if (_utc(ends_at) - _utc(starts_at)
                 != _utc(booking.ends_at) - _utc(booking.starts_at)):
@@ -151,7 +155,7 @@ def _prepare(
         }
         target = (source if target_week == week else
                   effective_week(uow, owner, target_week, zone_name))
-        if not _covered(replacement, target):
+        if not _covered(replacement, target, compatibility_scope_id(owner)):
             raise ValueError("replacement is not in compatible effective availability")
         _, _, _, bookings = _state(
             uow, owner, target_week, target_week + timedelta(days=7),

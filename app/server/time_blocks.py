@@ -64,6 +64,7 @@ class ConfirmedBlockResponse(BaseModel):
     transferred_from: UUID | None = None
     status: str = "CONFIRMED"
     revision: int = 1
+    scope_id: UUID | None = None
 
     @classmethod
     def from_domain(cls, block: ConfirmedTimeBlock) -> "ConfirmedBlockResponse":
@@ -72,6 +73,7 @@ class ConfirmedBlockResponse(BaseModel):
             work_type_id=block.work_type_id, starts_at=block.starts_at,
             ends_at=block.ends_at, transferred_from=block.transferred_from,
             status=block.status, revision=block.revision,
+            scope_id=block.scope_id,
         )
 
 

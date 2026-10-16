@@ -28,10 +28,12 @@ def verified_week(
     with uow:
         state = effective_week(uow, owner_id, week_start, timezone_name)
         confirmed = tuple(uow.time_blocks.list_week(week_start))
-        free = _free_intervals(state.blocks, commitments, confirmed)
-        declared: dict[UUID | None, int] = {}
+        free = _free_intervals(state.blocks, commitments, confirmed,
+                               partition_scopes=True)
+        declared: dict[tuple[UUID | None, UUID | None], int] = {}
         for block in state.blocks:
-            declared[block.work_type_id] = declared.get(block.work_type_id, 0) + block.minutes
+            key = (block.scope_id, block.work_type_id)
+            declared[key] = declared.get(key, 0) + block.minutes
         free_by_type = {
             kind: sum(end - start for start, end in spans)
             for kind, spans in free.items()
@@ -60,10 +62,10 @@ def verified_week(
                         ), "state": "OPEN",
                     })
         rows = [{
-            "work_type_id": kind,
+            "scope_id": kind[0], "work_type_id": kind[1],
             "declared_minutes": declared[kind],
             "free_minutes": free_by_type.get(kind, 0),
-        } for kind in sorted(declared, key=lambda v: (v is not None, str(v)))]
+        } for kind in sorted(declared, key=lambda v: (str(v[0]), str(v[1])))]
         return {
             "week_start": week_start, "timezone_name": timezone_name,
             "projection": "CALENDAR_CHECKED_NOT_RESERVED",
