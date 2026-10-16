@@ -287,3 +287,61 @@ def test_competing_affiliation_confirmations_one_wins_sqlite(runtime):
     assert sorted(statuses) == [200, 409]
     with factory() as session:
         assert session.scalar(select(func.count()).select_from(WorkTypeScopeAssignmentRecord)) == 1
+
+
+# TP-024C: integration regressions of parent identity and legacy API scope.
+def test_tp024c_legacy_weekly_endpoint_cannot_aggregate_parent_envelopes(runtime):
+    client, _ = runtime
+    work = make_scope(client, "Travail")
+    personal = make_scope(client, "Personnel")
+    day = monday()
+    schedule(client, day, work, 0, "GENERAL", "09:00", "11:00")
+    schedule(client, day, personal, 1, "GENERAL", "13:00", "15:00")
+    legacy = client.get(GRID, params={
+        "effective_from": str(day), "timezone_name": ZONE,
+    })
+    assert legacy.status_code == 200, legacy.text
+    assert legacy.json()["scope_id"] is None
+    assert legacy.json()["sections"] == []
+    for parent in (work, personal):
+        scoped = client.get(GRID, params={
+            "effective_from": str(day), "timezone_name": ZONE,
+            "scope_id": parent["id"],
+        })
+        assert scoped.status_code == 200, scoped.text
+        assert len(scoped.json()["sections"]) == 1
+        assert scoped.json()["sections"][0]["scope_id"] == parent["id"]
+    assert projection(client, day)["declared_minutes"] == 240
+
+
+def test_tp024c_parent_rename_preserves_leaf_membership_and_physical_capacity(runtime):
+    client, _ = runtime
+    work = make_scope(client, "Travail")
+    child = leaf(client, "Gestion")
+    day = monday()
+    draft = draft_affiliation(child, work, day)
+    token = preview_affiliation(client, draft)
+    assert confirm_affiliation(client, draft, token).status_code == 200
+    schedule(client, day, work, 0, "GENERAL", "09:00", "11:00")
+    schedule(client, day, work, 0, "CATEGORIZED", "09:00", "10:00",
+             type_id=child, mode="PROTECTED")
+    before = projection(client, day)
+    assert before["declared_minutes"] == 120
+    assert sum(b["minutes"] for b in before["blocks"]
+               if b["work_type_id"] == child) == 60
+    renamed = client.patch(ROOT + "/" + work["id"], json={
+        "name": "Bureau", "state": "ACTIVE",
+        "expected_version": work["version"],
+    })
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["id"] == work["id"]
+    assert renamed.json()["version"] == work["version"] + 1
+    catalog = client.get(ROOT).json()
+    assert any(row["work_type_id"] == child and row["scope_id"] == work["id"]
+               for row in catalog["affiliations"])
+    after = projection(client, day)
+    assert after["declared_minutes"] == before["declared_minutes"]
+    assert sorted((b["scope_id"], b["work_type_id"], b["minutes"])
+                  for b in after["blocks"]) == sorted(
+                      (b["scope_id"], b["work_type_id"], b["minutes"])
+                      for b in before["blocks"])
