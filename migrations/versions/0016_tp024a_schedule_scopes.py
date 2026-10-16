@@ -66,13 +66,21 @@ def upgrade() -> None:
     op.create_index("ix_scope_audit_owner", "scope_change_audit", ["owner_id", "recorded_at"])
     for table in ("recurring_availability_revisions", "availability_exceptions",
                   "availability_blocks", "confirmed_time_blocks"):
-        with op.batch_alter_table(table) as batch:
-            batch.add_column(sa.Column("scope_id", sa.String(36), nullable=True))
-            # SQLite batch table recreation requires named foreign keys.
-            batch.create_foreign_key(
-                f"fk_{table}_scope_id", "schedule_scopes", ["scope_id"], ["id"],
-                ondelete="RESTRICT",
-            )
+        if op.get_bind().dialect.name == "sqlite":
+            # Native ADD COLUMN preserves legacy rows, including old references
+            # that a batch copy would revalidate against unrelated tables.
+            # Nullable FK columns are supported by SQLite's native ALTER TABLE.
+            op.execute(sa.text(
+                f'ALTER TABLE "{table}" ADD COLUMN "scope_id" VARCHAR(36) '
+                'REFERENCES schedule_scopes(id) ON DELETE RESTRICT'
+            ))
+        else:
+            with op.batch_alter_table(table) as batch:
+                batch.add_column(sa.Column("scope_id", sa.String(36), nullable=True))
+                batch.create_foreign_key(
+                    f"fk_{table}_scope_id", "schedule_scopes", ["scope_id"], ["id"],
+                    ondelete="RESTRICT",
+                )
 
 
 def downgrade() -> None:
@@ -85,9 +93,21 @@ def downgrade() -> None:
                   "work_type_scope_versions", "schedule_scopes"):
         if bind.execute(sa.text(f"SELECT 1 FROM {table} LIMIT 1")).first():
             raise RuntimeError("cannot downgrade initialized schedule scopes or commands")
+    sqlite = bind.dialect.name == "sqlite"
+    if sqlite:
+        # SQLite cannot DROP a referenced column in place. A batch rebuild
+        # must not reject unrelated, already-present orphaned legacy rows.
+        # This revision has no scoped rows (guards above). FK enforcement is
+        # restored before the Alembic connection is reused.
+        bind.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        if bind.exec_driver_sql("PRAGMA foreign_keys").scalar() != 0:
+            raise RuntimeError("SQLite downgrade needs foreign_keys=OFF outside a transaction")
     for table in ("confirmed_time_blocks", "availability_blocks",
                   "availability_exceptions", "recurring_availability_revisions"):
-        with op.batch_alter_table(table) as batch:
+        # Native SQLite ADD COLUMN references reflect as unnamed FKs;
+        # give them stable names for the downgrade's explicit drop.
+        convention = {"fk": "fk_%(table_name)s_%(column_0_name)s"} if sqlite else None
+        with op.batch_alter_table(table, naming_convention=convention) as batch:
             batch.drop_constraint(f"fk_{table}_scope_id", type_="foreignkey")
             batch.drop_column("scope_id")
     op.drop_index("ix_scope_audit_owner", table_name="scope_change_audit")
@@ -98,3 +118,10 @@ def downgrade() -> None:
     op.drop_table("work_type_scope_versions")
     op.drop_index("ix_schedule_scopes_owner", table_name="schedule_scopes")
     op.drop_table("schedule_scopes")
+    if sqlite:
+        # Alembic runs SQLite DDL non-transactionally; batch copies performed
+        # DML and require a commit before PRAGMA can take effect again.
+        bind.commit()
+        bind.exec_driver_sql("PRAGMA foreign_keys=ON")
+        if bind.exec_driver_sql("PRAGMA foreign_keys").scalar() != 1:
+            raise RuntimeError("failed to restore SQLite foreign key enforcement")
