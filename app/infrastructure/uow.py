@@ -19,6 +19,7 @@ from app.infrastructure.work_session_repository import SqlWorkSessionRepository
 from app.infrastructure.availability_exception_repository import SqlAvailabilityExceptionRepository
 from app.infrastructure.recurring_availability_repository import SqlRecurringAvailabilityRepository
 from app.infrastructure.weekly_schedule_repository import SqlWeeklyScheduleCommandRepository
+from app.infrastructure.schedule_scope_repository import SqlScheduleScopeRepository
 
 
 class SqlAlchemyUnitOfWork:
@@ -42,6 +43,7 @@ class SqlAlchemyUnitOfWork:
         self.history_read = SqlHistoryReadRepository(self.session)
         self.projects = SqlProjectRepository(self.session)
         self.work_types = SqlWorkTypeRepository(self.session)
+        self.schedule_scopes = SqlScheduleScopeRepository(self.session)
         return self
 
     def __exit__(

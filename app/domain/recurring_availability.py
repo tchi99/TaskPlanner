@@ -49,6 +49,7 @@ class RuleRevision:
     start_fold: int | None = None
     end_fold: int | None = None
     supersedes_future: bool = False
+    scope_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if self.number < 1:
@@ -107,6 +108,7 @@ class Occurrence:
     work_type_id: UUID | None
     kind: RuleKind
     mode: AvailabilityMode | None
+    scope_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,7 +179,7 @@ def expand_rules(
                 continue
             occurrences.append(Occurrence(
                 rule.id, rev.number, day, start, end, rev.work_type_id,
-                rev.kind, rev.mode,
+                rev.kind, rev.mode, rev.scope_id,
             ))
     return (
         tuple(sorted(occurrences, key=lambda v: (v.starts_at, str(v.rule_id)))),

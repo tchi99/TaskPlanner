@@ -21,6 +21,7 @@ class SqlAvailabilityRepository:
             starts_at=datetime.fromisoformat(record.starts_at),
             ends_at=datetime.fromisoformat(record.ends_at),
             work_type_id=UUID(record.work_type_id) if record.work_type_id else None,
+            scope_id=UUID(record.scope_id) if record.scope_id else None,
         )
 
     def add(self, block: AvailabilityBlock) -> AvailabilityBlock:
@@ -30,6 +31,7 @@ class SqlAvailabilityRepository:
             starts_at=block.starts_at.isoformat(),
             ends_at=block.ends_at.isoformat(),
             work_type_id=str(block.work_type_id) if block.work_type_id else None,
+            scope_id=str(block.scope_id) if block.scope_id else None,
         ))
         return block
 

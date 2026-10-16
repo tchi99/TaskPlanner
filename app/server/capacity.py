@@ -52,6 +52,7 @@ class AvailabilityBlockResponse(BaseModel):
 
 class CapacityByTypeResponse(BaseModel):
     work_type_id: UUID | None
+    scope_id: UUID | None = None
     available_minutes: int
     known_demand_minutes: int
     unestimated_units: int
@@ -81,7 +82,7 @@ class EvaluationResponse(BaseModel):
             status=value.status.value,
             by_work_type=[
                 CapacityByTypeResponse(
-                    work_type_id=b.work_type_id,
+                    work_type_id=b.work_type_id, scope_id=b.scope_id,
                     available_minutes=b.available_minutes,
                     known_demand_minutes=b.known_demand_minutes,
                     unestimated_units=b.unestimated_units,

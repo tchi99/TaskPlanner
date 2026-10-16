@@ -13,6 +13,7 @@ from app.application.uow import UnitOfWork
 from app.domain.availability_exceptions import AvailabilityException, ExceptionAction
 from app.domain.effective_availability import EffectiveProjection, project_effective
 from app.domain.recurring_availability import RuleConflict, expand_rules
+from app.domain.schedule_scopes import compatibility_scope_id, effective_scope
 
 
 def _weeks(start: date, end: date):
@@ -42,7 +43,9 @@ def read_effective(
         raise ValueError("projection requires 1 to 93 days")
     with uow:
         return project_effective(*_state(uow, owner_id, start, end),
-                                 start, end, timezone_name)
+                                 start, end, timezone_name,
+                                 compatibility_id=compatibility_scope_id(owner_id),
+                                 affiliations=uow.schedule_scopes.affiliations(owner_id))
 
 
 def list_exceptions(uow: UnitOfWork, owner_id: str):
@@ -70,11 +73,27 @@ def _validate(uow: UnitOfWork, owner_id: str, value: AvailabilityException) -> N
         occurrences, expansion_issues = expand_rules((rule,), day, day + timedelta(days=1))
         if not occurrences or expansion_issues:
             raise ValueError("target occurrence does not exist or has invalid civil time")
+        original_scope = occurrences[0].scope_id
+        if value.scope_id not in (None, original_scope):
+            raise ValueError("exception scope differs from its original occurrence")
+        if original_scope is not None and value.scope_id is None:
+            raise ValueError("scoped occurrence requires explicit scope provenance")
     if value.starts_at is not None and value.starts_at.astimezone(
             ZoneInfo(value.timezone_name)).date() < today:
         raise ValueError("exception must start today or later")
     if value.work_type_id and uow.work_types.get(value.work_type_id) is None:
         raise ValueError("work type does not exist")
+    if value.scope_id is not None:
+        scope = uow.schedule_scopes.get(owner_id, value.scope_id)
+        if scope is None or scope.is_compatibility or scope.state != "ACTIVE":
+            raise ValueError("scope does not exist or is not active for this owner")
+        if value.work_type_id is not None:
+            when = value.original_local_date or value.starts_at.astimezone(
+                ZoneInfo(value.timezone_name)).date()
+            if effective_scope(value.work_type_id, when,
+                               uow.schedule_scopes.affiliations(owner_id),
+                               compatibility_scope_id(owner_id)) != value.scope_id:
+                raise ValueError("exception WorkType must belong to its scope")
 
 
 def _window(value: AvailabilityException) -> tuple[date, date]:
@@ -94,7 +113,8 @@ def _window(value: AvailabilityException) -> tuple[date, date]:
     return first, last
 
 
-def _snapshot(rule_state, exception_state, manual, confirmed, proposed, old_id):
+def _snapshot(rule_state, exception_state, manual, confirmed, proposed, old_id,
+              scopes=(), affiliations=()):
     payload = {
         "algorithm": "TP-022B/v1",
         "rules": [asdict(item) for item in rule_state],
@@ -102,6 +122,8 @@ def _snapshot(rule_state, exception_state, manual, confirmed, proposed, old_id):
         "manual": [asdict(item) for item in manual],
         "confirmed": [asdict(item) for item in confirmed],
         "proposed": asdict(proposed), "old_id": str(old_id),
+        "scopes": [asdict(v) for v in scopes],
+        "affiliations": [asdict(v) for v in affiliations],
     }
     return sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
@@ -124,9 +146,14 @@ def _preview_loaded(uow: UnitOfWork, owner_id: str, proposed: AvailabilityExcept
     # For newly proposed records, the preview uses the deterministic sentinel
     # UUID 0. The id is not part of the snapshot hash nor capacity decision.
     selection = tuple(e for e in exceptions if e.id != old_id) + (proposed,)
+    scopes = uow.schedule_scopes.list_owner(owner_id)
+    affiliations = uow.schedule_scopes.affiliations(owner_id)
     projection = project_effective(rules, selection, manual, confirmed,
-                                   start, end, proposed.timezone_name)
-    fingerprint = _snapshot(rules, exceptions, manual, confirmed, proposed, old_id)
+                                   start, end, proposed.timezone_name,
+                                   compatibility_id=compatibility_scope_id(owner_id),
+                                   affiliations=affiliations)
+    fingerprint = _snapshot(rules, exceptions, manual, confirmed, proposed, old_id,
+                            scopes, affiliations)
     return fingerprint, projection, (start, end)
 
 

@@ -10,6 +10,7 @@ from app.application.calendar import CalendarReader
 from app.application.planning_availability import effective_week
 from app.application.uow import UnitOfWork
 from app.domain.capacity import validate_week_start
+from app.domain.schedule_scopes import compatibility_scope_id, effective_scope
 from app.domain.time_blocks import (
     ConfirmedTimeBlock, TimeBlockPreview, suggest_time_blocks,
 )
@@ -57,11 +58,23 @@ def preview_time_blocks(
             if aggregate is None:
                 raise LookupError(f"task {task_id} not found")
             candidates.append(aggregate)
+        # A date-spanning move of one leaf across parents is ambiguous for
+        # preferential transfers in a weekly preview: refuse these donors.
+        affiliations = uow.schedule_scopes.affiliations(owner_id)
+        compatibility = compatibility_scope_id(owner_id)
+        type_scopes = {}
+        for work_type in uow.work_types.list_all():
+            first = effective_scope(work_type.id, week_start, affiliations, compatibility)
+            if all(effective_scope(work_type.id, week_start + timedelta(days=i),
+                                   affiliations, compatibility) == first
+                   for i in range(1, 7)):
+                type_scopes[work_type.id] = first
         result = suggest_time_blocks(
             week_start, timezone_name, blocks, commitments, existing, candidates,
             preferred_blocks=availability.preferred_blocks,
             offer_transfers=offer_transfers,
             availability_fingerprint=availability.revision_fingerprint,
+            work_type_scopes=type_scopes,
         )
         if not confirm:
             return result, ()
@@ -71,6 +84,24 @@ def preview_time_blocks(
             raise ValueError("proposal is incomplete and cannot be confirmed")
         if result.requires_transfer_confirmation and not accept_transfers:
             raise ValueError("PREFERRED transfers require explicit acceptance")
+        # Confirm provenance from the actual UTC physical compartment,
+        # including an explicitly accepted intra-parent preferred donor.
+        def source_scope(item):
+            donor = item.transferred_from or item.work_type_id
+            matches = {
+                block.scope_id for block in availability.blocks
+                if block.work_type_id == donor
+                and block.starts_at <= item.starts_at.astimezone(block.starts_at.tzinfo)
+                and block.ends_at >= item.ends_at.astimezone(block.ends_at.tzinfo)
+            }
+            if len(matches) != 1:
+                raise ValueError("booking scope is ambiguous or unavailable; preview again")
+            return next(iter(matches))
+
+        # The compatibility parent is a virtual read identity until a
+        # scoped FK is actually persisted. Materialize it under this lock.
+        if any(source_scope(item) == compatibility for item in result.suggestions):
+            uow.schedule_scopes.ensure_compatibility(owner_id)
         accepted = tuple(ConfirmedTimeBlock(
             week_start=week_start,
             task_id=s.task_id,
@@ -79,6 +110,7 @@ def preview_time_blocks(
             starts_at=s.starts_at,
             ends_at=s.ends_at,
             transferred_from=s.transferred_from,
+            scope_id=source_scope(s),
         ) for s in result.suggestions)
         for block in accepted:
             uow.time_blocks.add(block)

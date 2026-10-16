@@ -22,10 +22,12 @@ from app.domain.recurring_availability import (
     RuleRevision, _wall_clock,
 )
 from app.domain.availability_exceptions import AvailabilityException
+from app.domain.schedule_scopes import compatibility_scope_id, effective_scope
 
 
-ALGORITHM = "TP-023D/v2"
-_INVALID = {"OUTSIDE_GENERAL_ENVELOPE", "INCOMPATIBLE_WORK_TYPES", "INCOMPATIBLE_MODES"}
+ALGORITHM = "TP-024A/v1+TP-023D/v2"
+_INVALID = {"OUTSIDE_GENERAL_ENVELOPE", "INCOMPATIBLE_WORK_TYPES", "INCOMPATIBLE_MODES",
+            "INCOMPATIBLE_SCOPES", "AFFILIATION_SCOPE_MISMATCH"}
 
 
 @dataclass(frozen=True)
@@ -43,6 +45,7 @@ class Section:
     kind: RuleKind
     work_type_id: UUID | None
     slots: tuple[Slot, ...]
+    scope_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -70,12 +73,14 @@ def _digest(value) -> str:
     return sha256(_encode(value).encode()).hexdigest()
 
 
-def _key(weekday: int, kind: RuleKind, work_type_id: UUID | None, zone: str):
-    return weekday, kind, work_type_id, zone
+def _key(weekday: int, kind: RuleKind, work_type_id: UUID | None, zone: str,
+         scope_id: UUID | None = None):
+    return weekday, kind, work_type_id, zone, scope_id
 
 
 def _key_str(key) -> str:
-    return f"{key[0]}:{key[1].value}:{key[2] or 'NULL'}:{key[3]}"
+    legacy = f"{key[0]}:{key[1].value}:{key[2] or 'NULL'}:{key[3]}"
+    return legacy if key[4] is None else f"{legacy}:SCOPE:{key[4]}"
 
 
 def _active(rule: RecurringAvailabilityRule, day: date) -> RuleRevision | None:
@@ -99,20 +104,20 @@ def _dates(rules, effect: date) -> list[date]:
 
 
 def _slots_for(rules, when: date, key) -> tuple[Slot, ...]:
-    weekday, kind, work_type, zone = key
+    weekday, kind, work_type, zone, scope = key
     answer = []
     for rule in rules:
         rev = _active(rule, when)
         if (rev is not None and weekday in rev.days_of_week and
                 rev.kind is kind and rev.work_type_id == work_type and
-                rev.timezone_name == zone):
+                rev.timezone_name == zone and rev.scope_id == scope):
             answer.append(Slot(rev.starts_at_local, rev.ends_at_local, rev.mode,
                                rev.start_fold, rev.end_fold))
     return tuple(sorted(answer, key=lambda s: (s.starts_at_local, s.ends_at_local,
                                              str(s.mode), str(s.start_fold), str(s.end_fold))))
 
 
-def _validate(draft: WeeklyDraft, uow: UnitOfWork) -> dict:
+def _validate(draft: WeeklyDraft, uow: UnitOfWork, owner: str) -> dict:
     if not draft.sections or len(draft.sections) > 100:
         raise ValueError("select 1 to 100 weekday/section cells")
     if not draft.timezone_name or len(draft.timezone_name) > 100:
@@ -133,7 +138,27 @@ def _validate(draft: WeeklyDraft, uow: UnitOfWork) -> dict:
             raise ValueError("GENERAL section must use the NULL compartment")
         if section.kind is RuleKind.CATEGORIZED and section.work_type_id not in valid_types:
             raise ValueError("categorized section must reference an existing WorkType")
-        key = _key(day, section.kind, section.work_type_id, draft.timezone_name)
+        if section.scope_id is None and section.kind is RuleKind.CATEGORIZED and section.slots:
+            if effective_scope(
+                section.work_type_id, draft.effective_from,
+                uow.schedule_scopes.affiliations(owner),
+                compatibility_scope_id(owner),
+            ) != compatibility_scope_id(owner):
+                raise ValueError("legacy cells cannot create categorized intervals outside compatibility")
+        if section.scope_id is not None:
+            scope = uow.schedule_scopes.get(owner, section.scope_id)
+            if scope is None or scope.is_compatibility or scope.state != "ACTIVE":
+                raise ValueError("section scope is not active or owned by this user")
+            if section.kind is RuleKind.CATEGORIZED:
+                member = effective_scope(
+                    section.work_type_id, draft.effective_from,
+                    uow.schedule_scopes.affiliations(owner),
+                    compatibility_scope_id(owner),
+                )
+                if member != section.scope_id:
+                    raise ValueError("WorkType is not attached to this scope at the effective date")
+        key = _key(day, section.kind, section.work_type_id,
+                   draft.timezone_name, section.scope_id)
         if key in keys:
             raise ValueError("duplicate weekday/section cell")
         prev_end = -1
@@ -170,11 +195,12 @@ def _make_rule(rule_id: UUID, owner: str, revisions: list[RuleRevision]) -> Recu
 
 def _rev(rule_id: UUID, number: int, when: date, day: int,
          kind: RuleKind, work_type_id: UUID | None, zone: str, slot: Slot,
-         enabled: bool = True) -> RuleRevision:
+         enabled: bool = True, scope_id: UUID | None = None) -> RuleRevision:
     return RuleRevision(
         rule_id, number, when, None, zone, (day,),
         slot.starts_at_local, slot.ends_at_local, kind, work_type_id,
         slot.mode, enabled, slot.start_fold, slot.end_fold,
+        scope_id=scope_id,
     )
 
 
@@ -184,20 +210,20 @@ def _future_keys(rule: RecurringAvailabilityRule, effect: date):
     for when in _dates((rule,), effect):
         rev = _active(rule, when)
         if rev is not None:
-            result.update(_key(day, rev.kind, rev.work_type_id, rev.timezone_name)
+            result.update(_key(day, rev.kind, rev.work_type_id, rev.timezone_name, rev.scope_id)
                           for day in rev.days_of_week)
     return result
 
 
 def _child(rule, key, effect, identity) -> RecurringAvailabilityRule | None:
-    day, kind, work_type, zone = key
+    day, kind, work_type, zone, scope = key
     revisions = []
     last = None
     for when in _dates((rule,), effect):
         active = _active(rule, when)
         matches = (active is not None and day in active.days_of_week and
                    active.kind is kind and active.work_type_id == work_type and
-                   active.timezone_name == zone)
+                   active.timezone_name == zone and active.scope_id == scope)
         slot = (Slot(active.starts_at_local, active.ends_at_local, active.mode,
                      active.start_fold, active.end_fold) if matches else None)
         if slot == last:
@@ -210,7 +236,7 @@ def _child(rule, key, effect, identity) -> RecurringAvailabilityRule | None:
                                          valid_until=None))
         else:
             revisions.append(_rev(identity, len(revisions)+1, when, day,
-                                  kind, work_type, zone, slot))
+                                  kind, work_type, zone, slot, scope_id=scope))
         last = slot
     return _make_rule(identity, rule.owner_id, revisions) if revisions else None
 
@@ -278,7 +304,7 @@ def _invalid_details(before, after, original_rules, future_rules,
         if issue.code not in _INVALID:
             continue
         types, _, _, _ = context(issue, original_rules, original_exceptions)
-        earlier.setdefault((issue.code, types), []).append(
+        earlier.setdefault((issue.code, types, tuple(sorted(map(str, issue.scope_ids)))), []).append(
             (issue.starts_at, issue.ends_at))
     results = []
     new_codes = set()
@@ -288,7 +314,7 @@ def _invalid_details(before, after, original_rules, future_rules,
             continue
         types, rule_ids, source_zones, source_dates = context(
             issue, future_rules, future_exceptions)
-        prior = earlier.get((issue.code, types), [])
+        prior = earlier.get((issue.code, types, tuple(sorted(map(str, issue.scope_ids)))), [])
         cuts = {issue.starts_at, issue.ends_at}
         for left, right in prior:
             if left < issue.ends_at and right > issue.starts_at:
@@ -309,6 +335,7 @@ def _invalid_details(before, after, original_rules, future_rules,
                 "ends_at": end.astimezone(local_zone).isoformat(),
                 "work_type_id": types[0] if len(types) == 1 else None,
                 "work_type_ids": list(types), "rule_ids": rule_ids,
+                "scope_ids": [str(v) for v in issue.scope_ids],
                 "sources": list(issue.sources), "source_timezones": source_zones,
                 "source_local_dates": source_dates,
                 "cause": ("REMOVED_BY_EXCEPTION" if any(
@@ -329,7 +356,7 @@ def _invalid_details(before, after, original_rules, future_rules,
 
 
 def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
-    requested = _validate(draft, uow)
+    requested = _validate(draft, uow, owner)
     rules = tuple(uow.recurring_availability.list_owner(owner))
     exceptions = tuple(uow.availability_exceptions.list_owner(owner))
     bookings = tuple(uow.time_blocks.list_all_confirmed())
@@ -365,7 +392,7 @@ def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
         for index, slot in enumerate(slots):
             rule_id = identity(f"slot:{_key_str(key)}:{index}")
             rev = _rev(rule_id, 1, draft.effective_from, key[0], key[1],
-                       key[2], key[3], slot)
+                       key[2], key[3], slot, scope_id=key[4])
             additions[rule_id] = (_make_rule(rule_id, owner, [rev]), None)
     before_ids = set(affected)
     # Only rule snapshots (not the precomputed tuple above) reach the projector.
@@ -390,7 +417,8 @@ def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
             if revision is None or date_.weekday() not in revision.days_of_week:
                 continue
             if (old is not None and revision.kind is old.kind
-                    and revision.work_type_id == old.work_type_id):
+                    and revision.work_type_id == old.work_type_id
+                    and revision.scope_id == old.scope_id):
                 choices.append(target)
         exact = [r for r in choices if old is not None and
                  (v := _active(r, date_)) is not None and
@@ -443,9 +471,13 @@ def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
                              b.starts_at.astimezone(ZoneInfo(draft.timezone_name)).date() < end and
                              b.ends_at.astimezone(ZoneInfo(draft.timezone_name)).date() >= draft.effective_from)
     before = project_effective(rules, exceptions, manual, bounded_bookings,
-                               draft.effective_from, end, draft.timezone_name)
+                               draft.effective_from, end, draft.timezone_name,
+                               compatibility_id=compatibility_scope_id(owner),
+                               affiliations=uow.schedule_scopes.affiliations(owner))
     after = project_effective(future_rules, proposed_exceptions, manual, bounded_bookings,
-                              draft.effective_from, end, draft.timezone_name)
+                              draft.effective_from, end, draft.timezone_name,
+                              compatibility_id=compatibility_scope_id(owner),
+                              affiliations=uow.schedule_scopes.affiliations(owner))
     invalid, diagnostics, diagnostics_truncated = _invalid_details(
         before, after, rules, future_rules, exceptions, proposed_exceptions,
         manual, draft.timezone_name)
@@ -460,7 +492,9 @@ def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
         relevant_manual = tuple(b for week in _weeks(local, stop)
                                 for b in uow.availability.list_week(week))
         old_p = project_effective(rules, exceptions, relevant_manual, (booking,),
-                                  local, stop, draft.timezone_name)
+                                  local, stop, draft.timezone_name,
+                                  compatibility_id=compatibility_scope_id(owner),
+                                  affiliations=uow.schedule_scopes.affiliations(owner))
         new_p = project_effective(future_rules, proposed_exceptions, relevant_manual,
                                   (booking,), local, stop, draft.timezone_name)
         was = any(i.booking_id == booking.id for i in old_p.issues)
@@ -473,6 +507,9 @@ def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
     snapshot = {
         "algorithm": ALGORITHM, "draft": asdict(draft),
         "rules": [asdict(v) for v in rules],
+        "scopes": [asdict(v) for v in uow.schedule_scopes.list_owner(owner)],
+        "scope_versions": uow.schedule_scopes.versions(owner),
+        "affiliations": [asdict(v) for v in uow.schedule_scopes.affiliations(owner)],
         "exceptions": [asdict(v) for v in exceptions],
         "bookings": [asdict(v) for v in bookings],
         "manual": [asdict(v) for v in manual],
@@ -529,25 +566,29 @@ def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
     return response, affected, children, additions, changed_exceptions
 
 
-def read_weekly(uow: UnitOfWork, owner: str, effect: date, zone: str):
+def read_weekly(uow: UnitOfWork, owner: str, effect: date, zone: str,
+                scope_id: UUID | None = None):
     # The same future-date safety rule governs both read projection and writes.
     with uow:
-        _validate(WeeklyDraft(effect, zone, (Section(0, RuleKind.GENERAL, None, ()),), {}),
-                  uow)
+        _validate(WeeklyDraft(effect, zone, (Section(0, RuleKind.GENERAL, None, (), scope_id),), {}),
+                  uow, owner)
         rules = tuple(uow.recurring_availability.list_owner(owner))
         by_key = {}
         for rule in rules:
             rev = _active(rule, effect)
-            if rev is None or rev.timezone_name != zone:
+            if rev is None or rev.timezone_name != zone or rev.scope_id != scope_id:
                 continue
             for day in rev.days_of_week:
-                key = _key(day, rev.kind, rev.work_type_id, zone)
+                key = _key(day, rev.kind, rev.work_type_id, zone, rev.scope_id)
                 by_key[key] = _slots_for(rules, effect, key)
         return {
             "effective_from": effect.isoformat(), "timezone_name": zone,
-            "source_versions": {str(r.id): r.version for r in rules},
+            "scope_id": str(scope_id) if scope_id else None,
+            "source_versions": {str(r.id): r.version for r in rules
+                                if any(rev.scope_id == scope_id for rev in r.revisions)},
             "sections": [{"weekday": key[0], "kind": key[1].value,
                           "work_type_id": str(key[2]) if key[2] else None,
+                          "scope_id": str(key[4]) if key[4] else None,
                           "slots": [
                               {**asdict(slot), "sources": [
                                   {"rule_id": str(rule.id), "revision": rev.number}
@@ -555,6 +596,7 @@ def read_weekly(uow: UnitOfWork, owner: str, effect: date, zone: str):
                                   and key[0] in rev.days_of_week and rev.kind is key[1]
                                   and rev.work_type_id == key[2]
                                   and rev.timezone_name == key[3]
+                                  and rev.scope_id == key[4]
                                   and (rev.starts_at_local, rev.ends_at_local,
                                        rev.mode, rev.start_fold, rev.end_fold) == (
                                       slot.starts_at_local, slot.ends_at_local,

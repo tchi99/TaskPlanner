@@ -33,6 +33,7 @@ class AvailabilityException:
     mode: AvailabilityMode | None = None
     enabled: bool = True
     reason: str | None = None
+    scope_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if not self.owner_id or len(self.owner_id) > 128 or self.version < 1:

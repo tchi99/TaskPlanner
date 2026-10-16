@@ -28,6 +28,7 @@ class SqlAvailabilityExceptionRepository:
             work_type_id=UUID(record.work_type_id) if record.work_type_id else None,
             mode=AvailabilityMode(record.mode) if record.mode else None,
             enabled=record.enabled, reason=record.reason,
+            scope_id=UUID(record.scope_id) if record.scope_id else None,
         )
 
     @staticmethod
@@ -43,6 +44,7 @@ class SqlAvailabilityExceptionRepository:
             "work_type_id": str(value.work_type_id) if value.work_type_id else None,
             "mode": value.mode.value if value.mode else None,
             "enabled": value.enabled, "reason": value.reason,
+            "scope_id": str(value.scope_id) if value.scope_id else None,
             "updated_at": datetime.now(timezone.utc),
         }
 

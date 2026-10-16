@@ -17,6 +17,7 @@ from app.application.uow import UnitOfWork
 from app.domain.capacity import AvailabilityBlock, validate_week_start
 from app.domain.effective_availability import EffectiveProjection, project_effective
 from app.domain.recurring_availability import AvailabilityMode
+from app.domain.schedule_scopes import compatibility_scope_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,13 +41,15 @@ def effective_week(
     rules, exceptions, manual, confirmed = _state(uow, owner_id, week_start, until)
     projection = project_effective(
         rules, exceptions, manual, confirmed, week_start, until, timezone_name,
+        compatibility_id=compatibility_scope_id(owner_id),
+        affiliations=uow.schedule_scopes.affiliations(owner_id),
     )
     blocks = tuple(
         AvailabilityBlock(
             week_start=week_start,
             starts_at=item.starts_at.astimezone(zone),
             ends_at=item.ends_at.astimezone(zone),
-            work_type_id=item.work_type_id,
+            work_type_id=item.work_type_id, scope_id=item.scope_id,
             id=uuid5(NAMESPACE_URL, "taskplanner:effective:" + item.id),
         )
         for item in projection.blocks
@@ -56,7 +59,10 @@ def effective_week(
         for item in projection.blocks if item.mode is AvailabilityMode.PREFERRED
     }
     snapshot = {
-        "algorithm": "TP-022C/v1",
+        "algorithm": "TP-024A/v1",
+        "scope_versions": uow.schedule_scopes.versions(owner_id),
+        "affiliations": [asdict(v) for v in uow.schedule_scopes.affiliations(owner_id)],
+        "scopes": [asdict(v) for v in uow.schedule_scopes.list_owner(owner_id)],
         "week": week_start.isoformat(), "timezone": timezone_name,
         "rules": [asdict(v) for v in rules],
         "exceptions": [asdict(v) for v in exceptions],

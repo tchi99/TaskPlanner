@@ -31,6 +31,7 @@ class SectionInput(BaseModel):
     weekday: int = Field(ge=0, le=6)
     kind: RuleKind
     work_type_id: UUID | None = None
+    scope_id: UUID | None = None
     slots: list[SlotInput] = Field(default_factory=list)
 
 
@@ -54,6 +55,7 @@ class WeeklyDraftInput(BaseModel):
             sections=tuple(Section(
                 weekday=v.weekday, kind=v.kind, work_type_id=v.work_type_id,
                 slots=tuple(Slot(**s.model_dump()) for s in v.slots),
+                scope_id=v.scope_id,
             ) for v in self.sections),
             expected_versions=self.expected_versions,
             exception_decisions=tuple(ExceptionDecision(**d.model_dump())
@@ -77,9 +79,10 @@ def _run(action):
 
 @router.get("")
 def read_grid(request: Request, effective_from: date = Query(),
-              timezone_name: str = Query(), uow: UnitOfWork = Depends(get_uow)):
+              timezone_name: str = Query(), scope_id: UUID | None = Query(default=None),
+              uow: UnitOfWork = Depends(get_uow)):
     return _run(lambda: read_weekly(uow, _owner(request),
-                                    effective_from, timezone_name))
+                                    effective_from, timezone_name, scope_id))
 
 
 @router.post("/preview")

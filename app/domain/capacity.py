@@ -23,6 +23,7 @@ class AvailabilityBlock:
     ends_at: datetime
     work_type_id: UUID | None = None
     id: UUID = field(default_factory=uuid4)
+    scope_id: UUID | None = None
 
     def __post_init__(self) -> None:
         validate_week_start(self.week_start)
@@ -74,6 +75,7 @@ class WorkTypeCapacity:
     unestimated_units: int
     remaining_minutes: int
     status: CapacityStatus
+    scope_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,11 +100,28 @@ def evaluate_week(
     pool that can be counted again for each classified work type.
     """
     validate_blocks(week_start, blocks)
-    available: dict[UUID | None, int] = {}
-    demand: dict[UUID | None, int] = {}
-    unknown: dict[UUID | None, int] = {}
+    # Legacy evaluation retains its flat WorkType/NULL contract when there
+    # is only one parent. Across parents the buckets must be disjoint, and an
+    # unclassified task may not borrow either parent's residual NULL minutes.
+    scoped = len({b.scope_id for b in blocks}) > 1
+    available: dict[object, int] = {}
+    demand: dict[object, int] = {}
+    unknown: dict[object, int] = {}
     for block in blocks:
-        available[block.work_type_id] = available.get(block.work_type_id, 0) + block.minutes
+        key = (block.scope_id, block.work_type_id) if scoped else block.work_type_id
+        available[key] = available.get(key, 0) + block.minutes
+    by_type = {}
+    if scoped:
+        for scope_id, work_type in available:
+            by_type.setdefault(work_type, set()).add(scope_id)
+
+    def bucket(work_type_id):
+        if not scoped:
+            return work_type_id
+        if work_type_id is None:
+            return (None, None)
+        scopes = by_type.get(work_type_id, set())
+        return (next(iter(scopes)), work_type_id) if len(scopes) == 1 else (None, work_type_id)
 
     ids: set[UUID] = set()
     for aggregate in candidates:
@@ -127,19 +146,21 @@ def evaluate_week(
         else:
             units = [(task.work_type_id, task.estimated_minutes)]
         for work_type_id, estimate in units:
+            key = bucket(work_type_id)
             if estimate is None:
-                unknown[work_type_id] = unknown.get(work_type_id, 0) + 1
+                unknown[key] = unknown.get(key, 0) + 1
             else:
-                demand[work_type_id] = demand.get(work_type_id, 0) + estimate
+                demand[key] = demand.get(key, 0) + estimate
 
     buckets = []
-    for work_type_id in sorted(
+    for key in sorted(
         set(available) | set(demand) | set(unknown),
-        key=lambda value: (value is not None, str(value or "")),
+        key=lambda value: (str(value) if scoped else (str(value is not None) + str(value or ""))),
     ):
-        capacity = available.get(work_type_id, 0)
-        known = demand.get(work_type_id, 0)
-        missing = unknown.get(work_type_id, 0)
+        scope_id, work_type_id = key if scoped else (None, key)
+        capacity = available.get(key, 0)
+        known = demand.get(key, 0)
+        missing = unknown.get(key, 0)
         status = (
             CapacityStatus.OVER_CAPACITY if known > capacity
             else CapacityStatus.INCOMPLETE if missing
@@ -151,7 +172,7 @@ def evaluate_week(
             known_demand_minutes=known,
             unestimated_units=missing,
             remaining_minutes=capacity - known,
-            status=status,
+            status=status, scope_id=scope_id,
         ))
 
     status = (

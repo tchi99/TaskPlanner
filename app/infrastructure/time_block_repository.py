@@ -41,6 +41,7 @@ class SqlConfirmedTimeBlockRepository:
             transferred_from=(UUID(row.transferred_from_work_type_id)
                               if row.transferred_from_work_type_id else None),
             status=row.status, revision=row.revision,
+            scope_id=UUID(row.scope_id) if row.scope_id else None,
         )
 
     def get(self, booking_id: UUID) -> ConfirmedTimeBlock | None:
@@ -63,6 +64,7 @@ class SqlConfirmedTimeBlockRepository:
             work_type_id=str(block.work_type_id) if block.work_type_id else None,
             starts_at=block.starts_at.isoformat(), ends_at=block.ends_at.isoformat(),
             status=block.status, revision=block.revision,
+            scope_id=str(block.scope_id) if block.scope_id else None,
             transferred_from_work_type_id=(str(block.transferred_from)
                                            if block.transferred_from else None),
         ))

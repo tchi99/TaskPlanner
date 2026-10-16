@@ -28,6 +28,7 @@ class SqlRecurringAvailabilityRepository:
             mode=AvailabilityMode(row.mode) if row.mode else None,
             enabled=row.enabled, start_fold=row.start_fold, end_fold=row.end_fold,
             supersedes_future=row.supersedes_future,
+            scope_id=UUID(row.scope_id) if row.scope_id else None,
         )
 
     def _assemble(self, row: RecurringAvailabilityRuleRecord) -> RecurringAvailabilityRule:
@@ -68,6 +69,7 @@ class SqlRecurringAvailabilityRepository:
             mode=value.mode.value if value.mode else None,
             enabled=value.enabled, start_fold=value.start_fold, end_fold=value.end_fold,
             supersedes_future=value.supersedes_future,
+            scope_id=str(value.scope_id) if value.scope_id else None,
             recorded_at=datetime.now(timezone.utc),
         ))
 
