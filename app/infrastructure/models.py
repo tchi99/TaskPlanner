@@ -67,6 +67,66 @@ class WorkTypeRecord(Base):
     description: Mapped[str | None] = mapped_column(Text(), nullable=True)
 
 
+
+class ScheduleScopeRecord(Base):
+    """An owner-specific scheduling envelope, never a schedulable WorkType."""
+    __tablename__ = "schedule_scopes"
+    __table_args__ = (
+        Index("ix_schedule_scopes_owner", "owner_id"),
+        CheckConstraint("version > 0", name="ck_schedule_scope_version"),
+        CheckConstraint("state IN ('ACTIVE','INACTIVE')", name="ck_schedule_scope_state"),
+        UniqueConstraint("owner_id", "name", name="uq_schedule_scope_owner_name"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    version: Mapped[int] = mapped_column(Integer(), nullable=False)
+    is_compatibility: Mapped[bool] = mapped_column(nullable=False, default=False)
+
+
+class WorkTypeScopeVersionRecord(Base):
+    """CAS counter for one owner's temporal WorkType affiliation history."""
+    __tablename__ = "work_type_scope_versions"
+    owner_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    work_type_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("work_types.id", ondelete="RESTRICT"), primary_key=True,
+    )
+    version: Mapped[int] = mapped_column(Integer(), nullable=False)
+
+
+class WorkTypeScopeAssignmentRecord(Base):
+    """Append-only, civil-dated attachment; later records never rewrite history."""
+    __tablename__ = "work_type_scope_assignments"
+    __table_args__ = (
+        UniqueConstraint("owner_id", "work_type_id", "version",
+                         name="uq_scope_assignment_version"),
+        Index("ix_scope_assignment_lookup", "owner_id", "work_type_id",
+              "effective_from", "version"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    work_type_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("work_types.id", ondelete="RESTRICT"), nullable=False,
+    )
+    scope_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("schedule_scopes.id", ondelete="RESTRICT"), nullable=False,
+    )
+    effective_from: Mapped[date] = mapped_column(Date(), nullable=False)
+    version: Mapped[int] = mapped_column(Integer(), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class ScopeChangeCommandRecord(Base):
+    __tablename__ = "scope_change_commands"
+    owner_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    command_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    result: Mapped[dict] = mapped_column(JSON(), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
 class TaskRecord(Base):
     __tablename__ = "tasks"
     __table_args__ = (
@@ -155,6 +215,10 @@ class AvailabilityBlockRecord(Base):
     week_start: Mapped[date] = mapped_column(Date(), nullable=False)
     starts_at: Mapped[str] = mapped_column(String(40), nullable=False)
     ends_at: Mapped[str] = mapped_column(String(40), nullable=False)
+    scope_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("schedule_scopes.id", ondelete="RESTRICT"), nullable=True,
+    )
+
     work_type_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("work_types.id", ondelete="RESTRICT"),
@@ -187,6 +251,10 @@ class ConfirmedTimeBlockRecord(Base):
     )
     starts_at: Mapped[str] = mapped_column(String(40), nullable=False)
     ends_at: Mapped[str] = mapped_column(String(40), nullable=False)
+    scope_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("schedule_scopes.id", ondelete="RESTRICT"), nullable=True,
+    )
+
     transferred_from_work_type_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("work_types.id", ondelete="RESTRICT"), nullable=True,
     )
@@ -393,6 +461,10 @@ class RecurringAvailabilityRevisionRecord(Base):
     work_type_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("work_types.id", ondelete="RESTRICT"), nullable=True,
     )
+    scope_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("schedule_scopes.id", ondelete="RESTRICT"), nullable=True,
+    )
+
     mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
     enabled: Mapped[bool] = mapped_column(nullable=False)
     start_fold: Mapped[int | None] = mapped_column(Integer(), nullable=True)
@@ -433,6 +505,10 @@ class AvailabilityExceptionRecord(Base):
     work_type_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("work_types.id", ondelete="RESTRICT"), nullable=True,
     )
+    scope_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("schedule_scopes.id", ondelete="RESTRICT"), nullable=True,
+    )
+
     mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
     enabled: Mapped[bool] = mapped_column(nullable=False)
     reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
