@@ -537,7 +537,8 @@ export function AvailabilityPlanner({ workTypes, onWorkTypesChanged }: {
                 {(exceptionDraft.action === "UNAVAILABLE" || exceptionDraft.action === "ADD") && <label>
                    Portée de la dérogation<select value={exceptionDraft.scope_id} onChange={(event) =>
                      updateException({ scope_id: event.target.value })}>
-                     <option value="">Globale / compatibilité héritée</option>
+                     <option value="">{exceptionDraft.action === "UNAVAILABLE" ?
+                       "Globale — tous les parents" : "Compatibilité (héritage)"}</option>
                      {catalog?.scopes.filter((scope) => !scope.is_compatibility && scope.state === "ACTIVE")
                        .map((scope) => <option key={scope.id} value={scope.id}>{scope.name}</option>)}
                    </select></label>}
