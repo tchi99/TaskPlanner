@@ -24,7 +24,7 @@ from app.domain.recurring_availability import (
 from app.domain.availability_exceptions import AvailabilityException
 
 
-ALGORITHM = "TP-023A/v1"
+ALGORITHM = "TP-023D/v2"
 _INVALID = {"OUTSIDE_GENERAL_ENVELOPE", "INCOMPATIBLE_WORK_TYPES", "INCOMPATIBLE_MODES"}
 
 
@@ -226,6 +226,106 @@ def _event(entity_id: UUID, entity_type: str, event: str, correlation: UUID,
     )
 
 
+
+def _invalid_details(before, after, original_rules, future_rules,
+                     original_exceptions, future_exceptions, manual, zone: str):
+    """Classify *minutes* of structural errors, not projector partition IDs.
+
+    Changing a GENERAL interval can shorten/split an existing invalid span;
+    it cannot create a new error merely because its (start, end) changed.
+    Category identities remain stable even when a revised rule gets a new UUID.
+    """
+    local_zone = ZoneInfo(zone)
+
+    def context(issue, rules, exceptions):
+        rule_by_id = {str(rule.id): rule for rule in rules}
+        exception_by_id = {str(exc.id): exc for exc in exceptions}
+        manual_by_id = {str(block.id): block for block in manual}
+        types, rule_ids, source_zones, source_dates = set(), set(), set(), set()
+        for source in issue.sources:
+            parts = source.split(":")
+            if parts[0] == "RULE" and len(parts) >= 4:
+                rule = rule_by_id.get(parts[1])
+                if rule is None:
+                    continue
+                rule_ids.add(parts[1])
+                source_dates.add(parts[2])
+                revision = next((rev for rev in rule.revisions
+                                 if "v" + str(rev.number) == parts[3]), None)
+                if revision is not None:
+                    source_zones.add(revision.timezone_name)
+                    if revision.kind is RuleKind.CATEGORIZED and revision.work_type_id:
+                        types.add(str(revision.work_type_id))
+            elif parts[0] == "EXCEPTION" and len(parts) >= 2:
+                exc = exception_by_id.get(parts[1])
+                if exc is not None:
+                    source_zones.add(exc.timezone_name)
+                    if exc.original_local_date is not None:
+                        source_dates.add(exc.original_local_date.isoformat())
+                    if parts[-1] != "removed" and exc.kind is RuleKind.CATEGORIZED and exc.work_type_id:
+                        types.add(str(exc.work_type_id))
+                    if exc.rule_id:
+                        rule_ids.add(str(exc.rule_id))
+            elif parts[0] == "MANUAL" and len(parts) >= 2:
+                block = manual_by_id.get(parts[1])
+                if block is not None and block.work_type_id:
+                    types.add(str(block.work_type_id))
+        return (tuple(sorted(types)), sorted(rule_ids), sorted(source_zones),
+                sorted(source_dates))
+
+    earlier = {}
+    for issue in before.issues:
+        if issue.code not in _INVALID:
+            continue
+        types, _, _, _ = context(issue, original_rules, original_exceptions)
+        earlier.setdefault((issue.code, types), []).append(
+            (issue.starts_at, issue.ends_at))
+    results = []
+    new_codes = set()
+    total = 0
+    for issue in after.issues:
+        if issue.code not in _INVALID:
+            continue
+        types, rule_ids, source_zones, source_dates = context(
+            issue, future_rules, future_exceptions)
+        prior = earlier.get((issue.code, types), [])
+        cuts = {issue.starts_at, issue.ends_at}
+        for left, right in prior:
+            if left < issue.ends_at and right > issue.starts_at:
+                cuts.add(max(left, issue.starts_at))
+                cuts.add(min(right, issue.ends_at))
+        points = sorted(cuts)
+        for start, end in zip(points, points[1:]):
+            preexisting = any(left <= start and right >= end for left, right in prior)
+            status = "PREEXISTING" if preexisting else "NEW"
+            if not preexisting:
+                new_codes.add(issue.code)
+            total += 1
+            if len(results) >= 500:
+                continue
+            results.append({
+                "code": issue.code, "status": status,
+                "date": start.astimezone(local_zone).date().isoformat(),
+                "timezone_name": zone, "weekday": start.astimezone(local_zone).weekday(),
+                "starts_at": start.astimezone(local_zone).isoformat(),
+                "ends_at": end.astimezone(local_zone).isoformat(),
+                "work_type_id": types[0] if len(types) == 1 else None,
+                "work_type_ids": list(types), "rule_ids": rule_ids,
+                "sources": list(issue.sources), "source_timezones": source_zones,
+                "source_local_dates": source_dates,
+                "cause": ("REMOVED_BY_EXCEPTION" if any(
+                    s.endswith(":removed") for s in issue.sources)
+                    else "NO_COVERING_GENERAL" if issue.code == "OUTSIDE_GENERAL_ENVELOPE"
+                    else "OVERLAPPING_DECLARATIONS"),
+                "remediation": (
+                    "Élargir ou réparer l'enveloppe générale, ajuster la catégorie, "
+                    "ou modifier les deux sections dans le même brouillon."
+                    if issue.code == "OUTSIDE_GENERAL_ENVELOPE"
+                    else "Corriger les plages ou modes qui se chevauchent dans un même brouillon."),
+            })
+    return sorted(new_codes), results, total > len(results)
+
+
 def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
     requested = _validate(draft, uow)
     rules = tuple(uow.recurring_availability.list_owner(owner))
@@ -344,9 +444,9 @@ def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
                                draft.effective_from, end, draft.timezone_name)
     after = project_effective(future_rules, proposed_exceptions, manual, bounded_bookings,
                               draft.effective_from, end, draft.timezone_name)
-    before_errors = {(i.code, i.starts_at, i.ends_at) for i in before.issues}
-    invalid = sorted({i.code for i in after.issues if i.code in _INVALID and
-                     (i.code, i.starts_at, i.ends_at) not in before_errors})
+    invalid, diagnostics, diagnostics_truncated = _invalid_details(
+        before, after, rules, future_rules, exceptions, proposed_exceptions,
+        manual, draft.timezone_name)
     # Inventory ALL finite persisted bookings, even when they lie beyond the
     # 93-day numeric projection. Never mutate them in a weekly schedule edit.
     conflicts = []
@@ -377,6 +477,7 @@ def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
         "work_types": sorted(str(v.id) for v in uow.work_types.list_all()),
         "modified": sorted(_key_str(k) for k in modified),
         "conflicts": conflicts, "invalid": invalid,
+        "invalid_diagnostics": diagnostics, "diagnostics_truncated": diagnostics_truncated,
         "unresolved": unresolved,
     }
     response = {
@@ -410,6 +511,8 @@ def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
         "unresolved_exceptions": unresolved,
         "booking_conflicts": conflicts,
         "invalid_conflicts": invalid,
+        "invalid_diagnostics": diagnostics,
+        "invalid_diagnostics_truncated": diagnostics_truncated,
         "before_declared_minutes_93d": before.declared_minutes,
         "after_declared_minutes_93d": after.declared_minutes,
         "projection_days": 93,
