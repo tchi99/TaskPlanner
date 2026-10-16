@@ -28,7 +28,7 @@ def test_new_table_and_history_constraint_preserve_legacy_rows(tmp_path):
         )
     migrate(path, "head")
     with sqlite3.connect(path) as db:
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("0015_tp023a",)
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("0016_tp024a",)
         assert db.execute("SELECT id FROM availability_blocks").fetchone() == (block_id,)
         columns = {column[1] for column in db.execute(
             "PRAGMA table_info(availability_exceptions)")}
