@@ -157,18 +157,18 @@ test("TP-023B : copie ciblée après aperçu local, puis aperçu serveur groupé
   expect(body.sections.map((cell: { weekday: number }) => cell.weekday).sort()).toEqual([0, 1]);
 });
 
-test("une règle hebdomadaire se crée par API depuis la vue desktop", async ({ page }, testInfo) => {
+test("TP-023D : la grille remplace la création legacy, archive en lecture seule", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chromium", "Scénario desktop.");
   await expect(page.getByRole("heading", { name: "Disponibilités" })).toBeVisible();
-  await page.getByText("Gestion avancée des anciennes séries et règles").click();
-  await expect(page.getByRole("heading", { name: "Nouvelle plage récurrente" })).toBeVisible();
-  await page.getByLabel("Date d'effet", { exact: true }).fill("2026-10-19");
-  await page.getByLabel("Nature").selectOption("CATEGORIZED");
-  await page.getByLabel("Type de travail").selectOption("focus-type");
-  await page.getByLabel("Protection de la plage").selectOption("PROTECTED");
-  await page.getByRole("button", { name: "Créer la règle" }).click();
-  await expect(page.getByText("Horaire habituel enregistré.")).toBeVisible();
-  await expect(page.getByText("Protégée", { exact: true }).first()).toBeVisible();
+  await page.getByLabel("Section de l'horaire").selectOption("focus-type");
+  await page.getByRole("button", { name: "Ajouter une plage au Lundi" }).click();
+  await page.getByLabel("Lundi plage 1 mode").selectOption("PROTECTED");
+  await page.getByRole("button", { name: "Prévisualiser les changements" }).click();
+  await page.getByRole("button", { name: "Confirmer et enregistrer l'horaire futur" }).click();
+  await expect(page.getByText(/Horaire futur enregistré atomiquement/)).toBeVisible();
+  await page.getByText("Consulter les séries historiques (lecture seule)").click();
+  await expect(page.getByRole("heading", { name: "Sources de l'horaire conservées" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Créer la règle" })).toHaveCount(0);
   await page.getByRole("button", { name: "Semaine réelle" }).click();
   await expect(page.getByText("minutes déclarées")).toBeVisible();
   await expect(page.getByText(/BOOKING_OUTSIDE_EFFECTIVE_AVAILABILITY/)).toBeVisible();
@@ -224,8 +224,8 @@ test("une réservation sans conflit s'annule dans la semaine réelle sans mutati
 
 test("l'horaire habituel annule seulement la réservation datée, sans toucher la série", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Réservations de la semaine" })).toBeVisible();
-  await page.getByText("Gestion avancée des anciennes séries et règles").click();
-  await expect(page.getByRole("heading", { name: "Règles hebdomadaires" })).toBeVisible();
+  await page.getByText("Consulter les séries historiques (lecture seule)").click();
+  await expect(page.getByRole("heading", { name: "Sources de l'horaire conservées" })).toBeVisible();
   await page.getByRole("button", { name: "Annuler la réservation booking-" }).click();
   await page.getByRole("button", { name: "Prévisualiser la résolution" }).click();
   await expect(page.getByText(/les règles récurrentes restent intactes/)).toBeVisible();
@@ -235,9 +235,9 @@ test("l'horaire habituel annule seulement la réservation datée, sans toucher l
   await page.getByRole("button", { name: "Confirmer cette décision" }).click();
   await expect(page.getByText("Aucune réservation locale active sur la semaine.")).toBeVisible();
   await page.getByRole("button", { name: "Horaire habituel" }).click();
-  await page.getByText("Gestion avancée des anciennes séries et règles").click();
-  await expect(page.getByRole("heading", { name: "Règles hebdomadaires" })).toBeVisible();
-  await expect(page.getByText("Aucune règle habituelle.")).toBeVisible();
+  await page.getByText("Consulter les séries historiques (lecture seule)").click();
+  await expect(page.getByRole("heading", { name: "Sources de l'horaire conservées" })).toBeVisible();
+  await expect(page.getByText("Aucune règle historique.")).toBeVisible();
   await page.getByRole("button", { name: "Semaine suivante" }).click();
   await expect(page.getByText("Aucune réservation locale active sur la semaine.")).toBeVisible();
 });
