@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { apiFetch } from "./auth";
 import "./availability.css";
 import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
+import { ScheduleCategories, type ScopeCatalog } from "./ScheduleCategories";
 
 type WorkType = { id: string; name: string };
 type Mode = "PROTECTED" | "PREFERRED";
@@ -10,7 +11,7 @@ type Action = "CANCEL" | "REPLACE" | "ADD" | "UNAVAILABLE";
 type Revision = {
   number: number; effective_from: string; valid_until: string | null;
   timezone_name: string; days_of_week: number[]; starts_at_local: string;
-  ends_at_local: string; kind: Kind; work_type_id: string | null;
+  ends_at_local: string; kind: Kind; work_type_id: string | null; scope_id?: string | null;
   mode: Mode | null; enabled: boolean; start_fold: number | null; end_fold: number | null;
 };
 type Rule = { id: string; version: number; revisions: Revision[] };
@@ -26,7 +27,7 @@ type ProjectionIssue = {
 type Projection = {
   projection: string; declared_minutes: number;
   blocks: { id: string; starts_at: string; ends_at: string; work_type_id: string | null;
-    mode: Mode | null; sources: string[]; minutes: number }[];
+    mode: Mode | null; scope_id?: string | null; sources: string[]; minutes: number }[];
   issues: ProjectionIssue[];
   expansion_issues: { rule_id: string; revision: number; original_local_date: string; reason: string }[];
 };
@@ -34,7 +35,7 @@ type Exception = {
   id: string; version: number; action: Action; rule_id: string | null;
   original_local_date: string | null; starts_at: string | null; ends_at: string | null;
   timezone_name: string; kind: Kind | null; work_type_id: string | null;
-  mode: Mode | null; enabled: boolean; reason: string | null;
+  mode: Mode | null; scope_id?: string | null; enabled: boolean; reason: string | null;
 };
 type Booking = {
   id: string; task_id: string; segment_id?: string | null; work_type_id: string | null; starts_at: string;
@@ -60,7 +61,7 @@ const initialException = {
   action: "UNAVAILABLE" as Action, rule_id: "", original_local_date: "",
   starts_at: "", ends_at: "", timezone_name: browserZone,
   kind: "GENERAL" as Kind, work_type_id: "", mode: "PREFERRED" as Mode,
-  enabled: true, reason: "",
+  enabled: true, reason: "", scope_id: "",
 };
 
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
@@ -112,9 +113,14 @@ function weekQuery(start: string, zone: string): string {
 }
 function shortId(id: string): string { return id.slice(0, 8); }
 
-export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
+export function AvailabilityPlanner({ workTypes, onWorkTypesChanged }: {
+  workTypes: WorkType[]; onWorkTypesChanged: () => Promise<void>;
+}) {
   const [tab, setTab] = useState<"rules" | "real">("rules");
   const [weeklyGridDirty, setWeeklyGridDirty] = useState(false);
+  const [catalog, setCatalog] = useState<ScopeCatalog | null>(null);
+  const [catalogError, setCatalogError] = useState("");
+  const [selectedScopeId, setSelectedScopeId] = useState("");
   const [week, setWeek] = useState(() => weekOf(dateISO(new Date())));
   const [zone, setZone] = useState(browserZone);
   const [zoneInput, setZoneInput] = useState(browserZone);
@@ -148,6 +154,26 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
 
   const label = (id: string | null) =>
     id ? workTypes.find((type) => type.id === id)?.name || "Type " + shortId(id) : "Non classé (NULL)";
+  const scopeLabel = (id: string | null | undefined) =>
+    !id || id === catalog?.compatibility_scope_id ? "Compatibilité (héritage)" :
+      catalog?.scopes.find((scope) => scope.id === id)?.name || "Scope " + shortId(id);
+  const sectionLabel = (typeId: string | null, scopeId: string | null | undefined) =>
+    typeId ? label(typeId) + " · " + scopeLabel(scopeId) :
+      "Général (NULL) · " + scopeLabel(scopeId);
+  const refreshCatalog = useCallback(async () => {
+    const result = await api<ScopeCatalog>("/api/schedule-scopes");
+    setCatalog(result); setCatalogError("");
+  }, []);
+  useEffect(() => {
+    void refreshCatalog().catch((reason: unknown) => setCatalogError(
+      reason instanceof Error ? reason.message : "Impossible de lire les catégories parentes."));
+  }, [refreshCatalog]);
+  function selectScope(id: string) {
+    if (id === selectedScopeId) return;
+    if (weeklyGridDirty && !window.confirm(
+      "Changer de parent abandonnera le brouillon hebdomadaire non enregistré. Continuer ?")) return;
+    setSelectedScopeId(id); setWeeklyGridDirty(false);
+  }
   const describe = (start: string, end: string) =>
     dayInZone(start, zone) + " " + timeInZone(start, zone) + " – " +
     dayInZone(end, zone) + " " + timeInZone(end, zone);
@@ -217,7 +243,7 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
         timeInZone(value.ends_at, value.timezone_name) : "",
       timezone_name: value.timezone_name, kind: value.kind || "GENERAL",
       work_type_id: value.work_type_id || "", mode: value.mode || "PREFERRED",
-      enabled: value.enabled, reason: value.reason || "",
+      enabled: value.enabled, reason: value.reason || "", scope_id: value.scope_id || "",
     });
     setTab("real");
   }
@@ -240,6 +266,7 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
       mode: action === "ADD" || action === "REPLACE" ?
         exceptionDraft.kind === "CATEGORIZED" ? exceptionDraft.mode : null : null,
       enabled: exceptionDraft.enabled, reason: exceptionDraft.reason.trim() || null,
+      scope_id: action === "CANCEL" || action === "REPLACE" ? null : exceptionDraft.scope_id || null,
     };
   }
   async function previewException(event: FormEvent<HTMLFormElement>) {
@@ -397,7 +424,29 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
       {notice && <p role="status" className="availabilityNotice">{notice}</p>}
       {loading ? <p role="status">Chargement des disponibilités…</p> : tab === "rules" ? (
         <div className="availabilityStack">
-          <WeeklyScheduleEditor workTypes={workTypes} zone={zone} onSaved={reload} onDirtyChange={setWeeklyGridDirty} />
+          {catalogError && <p role="alert" className="error">Catégories parentes indisponibles :
+             {" "}{catalogError}. La grille de compatibilité reste consultable.</p>}
+           {catalog && <ScheduleCategories catalog={catalog} workTypes={workTypes}
+             ruleSources={rules} zone={zone} onWorkTypesChanged={onWorkTypesChanged}
+             onChanged={async () => { await refreshCatalog(); await reload(); }}
+             onSelectScope={selectScope} />}
+           <section className="availabilityCard scopeChooser">
+             <label>Catégorie parente à configurer
+               <select aria-label="Catégorie parente de l'horaire" value={selectedScopeId}
+                 onChange={(event) => selectScope(event.target.value)}>
+                 <option value="">Compatibilité (héritage)</option>
+                 {catalog?.scopes.filter((scope) => !scope.is_compatibility).map((scope) =>
+                   <option key={scope.id} value={scope.id} disabled={scope.state !== "ACTIVE"}>
+                     {scope.name}{scope.state === "INACTIVE" ? " (désactivée)" : ""}
+                   </option>)}
+               </select>
+             </label>
+             <p className="muted">Les plages GENERAL (NULL) restent propres à ce parent.
+               Aucune minute n'est transférée automatiquement entre Travail et Personnel.</p>
+           </section>
+           <WeeklyScheduleEditor key={selectedScopeId || "compatibility"} workTypes={workTypes}
+             catalog={catalog} scopeId={selectedScopeId || null} zone={zone}
+             onSaved={reload} onDirtyChange={setWeeklyGridDirty} />
           <details className="availabilityLegacy">
             <summary>Consulter les séries historiques (lecture seule)</summary>
             <section className="availabilityCard">
@@ -412,7 +461,7 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
                   return <li key={rule.id}>
                     <div><strong>{latest.kind === "GENERAL" ? "Enveloppe générale" : label(latest.work_type_id)}</strong>
                       <p>{latest.days_of_week.map((day) => weekdays[day]).join(", ")} ·
-                        {" "}{latest.starts_at_local}–{latest.ends_at_local} · {latest.timezone_name}</p>
+                        {" "}{latest.starts_at_local}–{latest.ends_at_local} · {latest.timezone_name} · {scopeLabel(latest.scope_id)}</p>
                       <small>Règle {shortId(rule.id)} · {latest.enabled ? "Active" : "Désactivée"}
                         {" "}dès {latest.effective_from} · fin exclusive {latest.valid_until || "sans limite"}
                         {" "}· version {rule.version} · {rule.revisions.length} révision(s)</small>
@@ -448,7 +497,7 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
                   {blocks.length === 0 ? <p className="empty">Aucune plage</p> :
                     blocks.map((block) => <div className={"availabilitySlot " + (block.mode || "GENERAL")} key={block.id}>
                       <strong>{timeInZone(block.starts_at, zone)}–{timeInZone(block.ends_at, zone)}</strong>
-                      <span>{label(block.work_type_id)}</span>
+                      <span>{sectionLabel(block.work_type_id, block.scope_id)}</span>
                       <small>{block.minutes} min · {block.mode === "PROTECTED" ? "Protégée" :
                         block.mode === "PREFERRED" ? "Préférentielle" : "Générale"}</small>
                       <small>Origine : {block.sources.join(", ")}</small>
@@ -473,7 +522,7 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
                 <div><strong>{item.action} · {item.enabled ? "Active" : "Désactivée"}</strong>
                   <p>{item.original_local_date || (item.starts_at && item.ends_at ?
                     describe(item.starts_at, item.ends_at) : "—")} · {item.reason || "Sans motif"}</p>
-                  <small>Version {item.version}</small></div>
+                  <small>Version {item.version} · {scopeLabel(item.scope_id)}</small></div>
                 <button type="button" disabled={busy} onClick={() => editException(item)}>Modifier</button>
               </li>)}</ul>
             )}
@@ -485,7 +534,15 @@ export function AvailabilityPlanner({ workTypes }: { workTypes: WorkType[] }) {
                   <option value="UNAVAILABLE">Indisponibilité réelle</option><option value="ADD">Ajouter une plage</option>
                   <option value="CANCEL">Annuler une occurrence</option><option value="REPLACE">Remplacer une occurrence</option>
                 </select></label>
-                {(exceptionDraft.action === "CANCEL" || exceptionDraft.action === "REPLACE") && <>
+                {(exceptionDraft.action === "UNAVAILABLE" || exceptionDraft.action === "ADD") && <label>
+                   Portée de la dérogation<select value={exceptionDraft.scope_id} onChange={(event) =>
+                     updateException({ scope_id: event.target.value })}>
+                     <option value="">{exceptionDraft.action === "UNAVAILABLE" ?
+                       "Globale — tous les parents" : "Compatibilité (héritage)"}</option>
+                     {catalog?.scopes.filter((scope) => !scope.is_compatibility && scope.state === "ACTIVE")
+                       .map((scope) => <option key={scope.id} value={scope.id}>{scope.name}</option>)}
+                   </select></label>}
+                 {(exceptionDraft.action === "CANCEL" || exceptionDraft.action === "REPLACE") && <>
                   <label>Règle<select required value={exceptionDraft.rule_id} onChange={(event) =>
                     updateException({ rule_id: event.target.value })}>
                     <option value="">Choisir…</option>

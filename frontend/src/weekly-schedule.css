@@ -53,3 +53,32 @@
   background: #fffaf5; padding: 12px; }
 .weeklyDiagnostics li p { margin: 7px 0; font-size: .87rem; overflow-wrap: anywhere; }
 .weeklyDiagnostics li button { margin: 5px 9px 2px 0; }
+
+/* TP-024B — parents distincts, feuilles et reclassement explicite */
+.scopeManager { display: grid; gap: 12px; }
+.scopeManager .scopeCards { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,245px),1fr)); gap: 10px; }
+.scopeCard { padding: 13px; border: 1px solid #d9e3ed; background: #f8fafc; border-radius: 12px; min-width: 0; }
+.scopeCardHead { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.scopeCardHead small { color: #49647b; }
+.scopeCard ul { padding-left: 18px; min-height: 16px; }
+.scopeCard li { overflow-wrap: anywhere; }
+.scopeCard .availabilityActions { margin-top: 10px; }
+.scopeInlineForm { border-top: 1px solid #d9e3ed; padding-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
+.scopeInlineForm label { flex: 1 1 170px; }
+.scopeForms { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.scopeForms form { border: 1px solid #d9e3ed; border-radius: 10px; padding: 12px; display: grid; gap: 9px; align-content: start; }
+.scopeForms label, .scopeAffiliation label, .scopeChooser label { display: grid; gap: 6px; min-width: 0; }
+.scopeForms button, .scopeAffiliation button { justify-self: start; min-height: 37px; }
+.scopeAffiliation { border-top: 1px solid #dbe5ef; padding-top: 10px; display: grid; gap: 10px; }
+.scopeRemaps { display: grid; gap: 6px; border: 1px dashed #cbd5e1; border-radius: 9px; }
+.scopeRemaps label { display: flex; align-items: start; gap: 7px; }
+.scopePreview li { overflow-wrap: anywhere; }
+.scopeDiagnostics { border: 1px solid #edc4a0; padding: 10px; border-radius: 8px; background: #fff9f3; }
+.scopeDiagnostics small { display: block; color: #755436; }
+.scopeChooser { display: grid; gap: 8px; }
+.scopeChooser label { max-width: 480px; }
+@media (max-width: 700px) {
+  .scopeForms { grid-template-columns: 1fr; }
+  .scopeManager .availabilityActions button { flex: 1 1 auto; }
+  .scopeForms button, .scopeAffiliation > button { width: 100%; justify-self: stretch; }
+}

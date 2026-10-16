@@ -386,10 +386,11 @@ export function App() {
                 <button disabled={saving || !newProject.trim()}>Créer le projet</button>
               </form>
               <form onSubmit={(e) => createReference(e, "work-types", newWorkType)}>
-                <label>Nouveau type de travail<input maxLength={200} value={newWorkType} onChange={(e) => setNewWorkType(e.target.value)} /></label>
+                <label>Nouveau type de travail (compatibilité)<input maxLength={200} value={newWorkType} onChange={(e) => setNewWorkType(e.target.value)} /></label>
                 <button disabled={saving || !newWorkType.trim()}>Ajouter le type</button>
               </form>
             </div>
+            <p className="muted">Les nouveaux types restent en compatibilité tant que leur rattachement daté n’est pas confirmé dans Planification → Disponibilités.</p>
             {workTypes.length > 0 && <p className="muted">Types : {workTypes.map((type) => type.name).join(", ")}</p>}
           </section>
                   <section className="inbox projectsOverview">
@@ -415,7 +416,7 @@ export function App() {
                       aria-pressed={planningView === "capacity"} onClick={() => setPlanningView("capacity")}>Capacité et propositions</button>
                   </div>
                   {planningView === "availability"
-                    ? <AvailabilityPlanner workTypes={workTypes} />
+                    ? <AvailabilityPlanner workTypes={workTypes} onWorkTypesChanged={reload} />
                     : <WeeklyCapacity tasks={tasks} workTypes={workTypes} />}
                 </div>
               )}
