@@ -118,6 +118,18 @@ class WorkTypeScopeAssignmentRecord(Base):
     recorded_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
+class ScopeChangeAuditRecord(Base):
+    """Append-only correlated audit (no legacy history event constraint rewrite)."""
+    __tablename__ = "scope_change_audit"
+    __table_args__ = (Index("ix_scope_audit_owner", "owner_id", "recorded_at"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    command_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON(), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
 class ScopeChangeCommandRecord(Base):
     __tablename__ = "scope_change_commands"
     owner_id: Mapped[str] = mapped_column(String(128), primary_key=True)

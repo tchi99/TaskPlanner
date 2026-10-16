@@ -54,6 +54,16 @@ def upgrade() -> None:
         sa.Column("result", sa.JSON(), nullable=False),
         sa.Column("recorded_at", sa.DateTime(timezone=True), nullable=False),
     )
+    op.create_table(
+        "scope_change_audit",
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("owner_id", sa.String(128), nullable=False),
+        sa.Column("kind", sa.String(40), nullable=False),
+        sa.Column("command_id", sa.String(36), nullable=True),
+        sa.Column("payload", sa.JSON(), nullable=False),
+        sa.Column("recorded_at", sa.DateTime(timezone=True), nullable=False),
+    )
+    op.create_index("ix_scope_audit_owner", "scope_change_audit", ["owner_id", "recorded_at"])
     for table in ("recurring_availability_revisions", "availability_exceptions",
                   "availability_blocks", "confirmed_time_blocks"):
         with op.batch_alter_table(table) as batch:
@@ -67,7 +77,7 @@ def downgrade() -> None:
                   "availability_blocks", "confirmed_time_blocks"):
         if bind.execute(sa.text(f"SELECT 1 FROM {table} WHERE scope_id IS NOT NULL LIMIT 1")).first():
             raise RuntimeError("cannot downgrade scoped schedule provenance")
-    for table in ("scope_change_commands", "work_type_scope_assignments",
+    for table in ("scope_change_audit", "scope_change_commands", "work_type_scope_assignments",
                   "work_type_scope_versions", "schedule_scopes"):
         if bind.execute(sa.text(f"SELECT 1 FROM {table} LIMIT 1")).first():
             raise RuntimeError("cannot downgrade initialized schedule scopes or commands")
@@ -75,6 +85,8 @@ def downgrade() -> None:
                   "availability_exceptions", "recurring_availability_revisions"):
         with op.batch_alter_table(table) as batch:
             batch.drop_column("scope_id")
+    op.drop_index("ix_scope_audit_owner", table_name="scope_change_audit")
+    op.drop_table("scope_change_audit")
     op.drop_table("scope_change_commands")
     op.drop_index("ix_scope_assignment_lookup", table_name="work_type_scope_assignments")
     op.drop_table("work_type_scope_assignments")

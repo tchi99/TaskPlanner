@@ -130,6 +130,7 @@ class UnitOfWork(Protocol):
     history_read: HistoryReadRepository
     projects: ProjectRepository
     work_types: WorkTypeRepository
+    schedule_scopes: object  # SQL adapter enforces owner, version and dated affiliation
 
     def __enter__(self) -> UnitOfWork: ...
     def __exit__(
