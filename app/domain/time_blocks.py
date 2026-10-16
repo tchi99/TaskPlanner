@@ -28,6 +28,7 @@ class ConfirmedTimeBlock:
     transferred_from: UUID | None = None
     status: str = "CONFIRMED"
     revision: int = 1
+    scope_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if self.status not in ("CONFIRMED", "CANCELLED", "SUPERSEDED") or self.revision < 1:

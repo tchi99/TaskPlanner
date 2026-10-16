@@ -23,6 +23,7 @@ class AvailabilityBlock:
     ends_at: datetime
     work_type_id: UUID | None = None
     id: UUID = field(default_factory=uuid4)
+    scope_id: UUID | None = None
 
     def __post_init__(self) -> None:
         validate_week_start(self.week_start)

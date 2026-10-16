@@ -78,13 +78,14 @@ def _projection(value):
         "declared_minutes": value.declared_minutes,
         "blocks": [
             {"id": v.id, "starts_at": v.starts_at, "ends_at": v.ends_at,
-             "work_type_id": v.work_type_id, "mode": v.mode,
+             "work_type_id": v.work_type_id, "scope_id": v.scope_id, "mode": v.mode,
              "sources": v.sources, "minutes": v.minutes}
             for v in value.blocks
         ],
         "issues": [
             {"code": v.code, "starts_at": v.starts_at, "ends_at": v.ends_at,
-             "sources": v.sources, "booking_id": v.booking_id, "state": v.state}
+             "sources": v.sources, "booking_id": v.booking_id, "state": v.state,
+             "scope_ids": v.scope_ids}
             for v in value.issues
         ],
         "expansion_issues": [
