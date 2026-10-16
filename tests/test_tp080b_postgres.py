@@ -378,3 +378,52 @@ def test_tp023a_atomic_weekly_edit_on_private_postgres(postgres_engine):
             "SELECT COUNT(*) FROM recurring_availability_revisions "
             "WHERE rule_id = :id AND supersedes_future"
         ), {"id": str(original.id)}) == 1
+
+
+def test_tp024a_postgres_parent_owner_history_and_version_cas(postgres_engine):
+    """The real PG schema supports scope affiliation without touching WorkType IDs."""
+    from datetime import date, datetime, timedelta
+    from zoneinfo import ZoneInfo
+    from app.application.schedule_scopes import (
+        AffiliationDraft, create_scope, preview_affiliation, confirm_affiliation,
+    )
+    from app.domain import WorkType
+    from app.domain.recurring_availability import RuleConflict
+    from app.domain.schedule_scopes import compatibility_scope_id, effective_scope
+
+    owner = "test:tp024a:" + str(uuid4())
+    foreign_owner = "test:tp024a:" + str(uuid4())
+    factory = sessionmaker(bind=postgres_engine, autoflush=False, expire_on_commit=False)
+    new_type = WorkType(name="TP024A-" + str(uuid4()))
+    with SqlAlchemyUnitOfWork(factory) as unit:
+        unit.work_types.add(new_type)
+        unit.commit()
+    scope = create_scope(SqlAlchemyUnitOfWork(factory), owner, "Travail")
+    assert scope.owner_id == owner
+    with SqlAlchemyUnitOfWork(factory) as unit:
+        assert unit.schedule_scopes.get(foreign_owner, scope.id) is None
+    day = datetime.now(ZoneInfo("America/Toronto")).date() + timedelta(days=3)
+    draft = AffiliationDraft(new_type.id, scope.id, day, "America/Toronto", 0, 1)
+    preview = preview_affiliation(SqlAlchemyUnitOfWork(factory), owner, draft)
+    cmd = uuid4()
+    confirmed = confirm_affiliation(
+        SqlAlchemyUnitOfWork(factory), owner, draft,
+        fingerprint=preview["fingerprint"], command_id=cmd,
+        confirmed=True, acknowledge_bookings=False,
+    )
+    assert confirmed["applied"] and confirmed["affiliation_version"] == 1
+    assert confirmed == confirm_affiliation(
+        SqlAlchemyUnitOfWork(factory), owner, draft,
+        fingerprint=preview["fingerprint"], command_id=cmd,
+        confirmed=True, acknowledge_bookings=False,
+    )
+    with SqlAlchemyUnitOfWork(factory) as unit:
+        history = unit.schedule_scopes.affiliations(owner)
+        assert len(history) == 1
+        assert effective_scope(new_type.id, day, history,
+                               compatibility_scope_id(owner)) == scope.id
+        assert effective_scope(new_type.id, day-timedelta(days=1), history,
+                               compatibility_scope_id(owner)) == compatibility_scope_id(owner)
+        assert unit.schedule_scopes.affiliations(foreign_owner) == ()
+    with pytest.raises(RuleConflict):
+        preview_affiliation(SqlAlchemyUnitOfWork(factory), owner, draft)

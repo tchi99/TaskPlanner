@@ -131,3 +131,22 @@ def test_preferred_donation_is_intra_parent_not_cross_parent():
     )
     assert allowed.can_confirm
     assert allowed.suggestions[0].transferred_from == donor
+
+
+def test_dst_fallback_is_partitioned_in_utc_without_double_count():
+    # Toronto 01:00 on Nov 1 repeats; explicit start_fold=0 spans two
+    # physical hours until 02:00 EST. Parent scope must not multiply this.
+    parent, compat = uuid4(), uuid4()
+    sunday = date(2026, 11, 1)
+    original = rule(sunday, parent, 6, "01:00", "02:00")
+    revised = RuleRevision(
+        original.id, 1, sunday, None, ZONE, (6,), "01:00", "02:00",
+        RuleKind.GENERAL, None, None, start_fold=0, scope_id=parent,
+    )
+    scoped = RecurringAvailabilityRule(original.id, "owner", 1, (revised,))
+    result = project_effective((scoped,), (), (), (), sunday,
+                               sunday+timedelta(days=1), ZONE,
+                               compatibility_id=compat)
+    assert result.expansion_issues == ()
+    assert result.declared_minutes == 120
+    assert all(b.scope_id == parent for b in result.blocks)
