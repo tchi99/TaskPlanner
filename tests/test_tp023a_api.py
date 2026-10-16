@@ -439,7 +439,7 @@ def test_tp023d_envelope_expansion_and_precise_new_reduction(runtime):
                item["work_type_id"] == focus and
                item["cause"] == "NO_COVERING_GENERAL"
                for item in new)
-    assert confirm(client, reduced, reduced_preview).status_code == 400
+    assert confirm(client, reduced, reduced_preview).status_code == 422
     grid = client.get(ROOT, params={
         "effective_from": str(effect), "timezone_name": ZONE,
     }).json()
@@ -501,7 +501,7 @@ def test_tp023d_foreign_timezone_hidden_rule_has_actionable_source(runtime):
     assert any("UTC" in item["source_timezones"] and
                foreign["id"] in item["rule_ids"] and
                item["timezone_name"] == ZONE for item in matches)
-    assert confirm(client, body, token).status_code == 400
+    assert confirm(client, body, token).status_code == 422
 
 
 def test_tp023d_future_category_another_weekday_is_dated(runtime):
@@ -518,7 +518,7 @@ def test_tp023d_future_category_another_weekday_is_dated(runtime):
     assert diagnostics and any(v["date"] == str(first_wednesday) and
                                v["starts_at"][11:16] == "10:00" and
                                v["ends_at"][11:16] == "11:00" for v in diagnostics)
-    assert confirm(client, body, token).status_code == 400
+    assert confirm(client, body, token).status_code == 422
 
 
 def test_tp023d_cancelled_general_has_removed_cause_without_fake_new_error(runtime):
