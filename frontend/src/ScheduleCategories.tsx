@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { apiFetch } from "./auth";
 
 export type Scope = {
@@ -88,6 +88,7 @@ export function ScheduleCategories({ catalog, workTypes, ruleSources, zone, onCh
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const minimum = tomorrowInZone(zone);
+  useEffect(() => { setPreview(null); setAcknowledge(false); }, [zone]);
   const allScopes = [ ...catalog.scopes.filter((scope) => !scope.is_compatibility),
     ...catalog.scopes.filter((scope) => scope.is_compatibility) ];
   const scopeLabel = (id: string) =>
@@ -104,7 +105,12 @@ export function ScheduleCategories({ catalog, workTypes, ruleSources, zone, onCh
     setBusy(true); setError(""); setNotice("");
     try { await action(); await onChanged(); invalidate(); setNotice(success); }
     catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : "Opération impossible.");
+      const message = reason instanceof Error ? reason.message : "Opération impossible.";
+      setError(message);
+      if (message.includes("(409)")) {
+        setPreview(null); setAcknowledge(false);
+        await onChanged().catch(() => undefined);
+      }
     } finally { setBusy(false); }
   }
 
