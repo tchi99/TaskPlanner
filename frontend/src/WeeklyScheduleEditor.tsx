@@ -25,13 +25,21 @@ type EditPayload = {
 type Change = { section: string; before: Slot[]; after: Slot[];
   previous_future: { effective_from: string; slots: Slot[] }[] };
 type ExceptionChoice = { exception_id: string; version: number; candidate_rule_ids: string[]; reason: string };
+type InvalidDiagnostic = {
+  code: string; status: "NEW" | "PREEXISTING"; date: string; weekday: number;
+  timezone_name: string; starts_at: string; ends_at: string;
+  work_type_id: string | null; work_type_ids: string[]; rule_ids: string[];
+  sources: string[]; source_timezones: string[]; source_local_dates: string[];
+  cause: string; remediation: string;
+};
 type Preview = {
   fingerprint: string; has_changes: boolean; changed_sections: string[];
   cell_changes: Change[]; series_cutovers: { rule_id: string; version: number; future_revisions_superseded: number[] }[];
   unresolved_exceptions: ExceptionChoice[];
   exception_remaps: { exception_id: string; action: string; target_rule_id: string | null }[];
   booking_conflicts: { booking_id: string; starts_at: string; new: boolean }[];
-  invalid_conflicts: string[]; civil_time_issues: { date: string; reason: string }[];
+  invalid_conflicts: string[]; invalid_diagnostics?: InvalidDiagnostic[];
+  invalid_diagnostics_truncated?: boolean; civil_time_issues: { date: string; reason: string }[];
   before_declared_minutes_93d: number; after_declared_minutes_93d: number;
   projection_days: number; calendar_verified: boolean;
 };
@@ -73,6 +81,17 @@ function titleOf(key: string, types: WorkType[]): string {
   const type = parts[2] === "NULL" ? "Enveloppe générale" :
     types.find((item) => item.id === parts[2])?.name || "Type " + parts[2].slice(0, 8);
   return days[Number(parts[0])] + " · " + type;
+}
+function diagnosticTitle(code: string): string {
+  if (code === "OUTSIDE_GENERAL_ENVELOPE") return "Catégorie hors enveloppe générale";
+  if (code === "INCOMPATIBLE_WORK_TYPES") return "Catégories en conflit";
+  if (code === "INCOMPATIBLE_MODES") return "Protections de plages incompatibles";
+  return code;
+}
+function diagnosticCause(item: InvalidDiagnostic): string {
+  if (item.cause === "REMOVED_BY_EXCEPTION") return "Enveloppe retirée par une dérogation";
+  if (item.cause === "NO_COVERING_GENERAL") return "Enveloppe générale absente sur cet intervalle";
+  return "Déclarations récurrentes incompatibles";
 }
 function slotText(slot: Slot): string {
   return slot.starts_at_local + "–" + slot.ends_at_local +
@@ -435,7 +454,50 @@ export function WeeklyScheduleEditor({ workTypes, zone, onSaved, onDirtyChange }
             Je reconnais les nouveaux conflits sans annuler ni déplacer les réservations.
           </label>}
         </div>}
-        {preview.result.invalid_conflicts.map((issue) => <p key={issue} className="error">{issue}</p>)}
+        {(preview.result.invalid_diagnostics || []).length > 0 && <section
+          className="weeklyDiagnostics" aria-label="Diagnostics des disponibilités">
+          <h4>Diagnostic par date et section</h4>
+          <p className="muted">« Nouveau » bloque la sauvegarde. « Déjà présent » reste visible mais ne bloque pas
+            une correction qui n'ajoute aucune minute incompatible. Les horaires sont en {zone}.</p>
+          {(preview.result.invalid_diagnostics || []).length > 20 && <p>
+            20 premiers fragments affichés sur {preview.result.invalid_diagnostics?.length}.
+            {preview.result.invalid_diagnostics_truncated ? " D'autres fragments sont disponibles après correction." : ""}
+          </p>}
+          <ul>{(preview.result.invalid_diagnostics || []).slice(0, 20).map((issue, index) =>
+            <li key={issue.code + issue.starts_at + issue.ends_at + index}>
+              <strong>{diagnosticTitle(issue.code)}</strong> ·
+              {" "}{issue.status === "NEW" ? "Nouveau conflit bloquant" : "Conflit déjà présent"} ·
+              {" "}{days[issue.weekday]} {issue.date} ·
+              {" "}{issue.starts_at.slice(11, 16)}–{issue.ends_at.slice(11, 16)}
+              {issue.starts_at.slice(0, 10) !== issue.ends_at.slice(0, 10) &&
+                " (fin " + issue.ends_at.slice(0, 10) + ")"}
+              <p>{issue.work_type_ids.map((id) =>
+                workTypes.find((type) => type.id === id)?.name || "Type " + id.slice(0, 8)).join(" / ")
+                || "Section générale"} · {diagnosticCause(issue)}</p>
+              <p>Sources : {issue.rule_ids.map((id) => "règle " + id.slice(0, 8)).join(", ") ||
+                issue.sources.join(", ")}.
+                {issue.source_timezones.some((name) => name !== zone) &&
+                  " Attention : source dans un autre fuseau (" + issue.source_timezones.join(", ") +
+                  "). Applique ce fuseau dans « Fuseau de lecture » pour consulter sa grille."}
+              </p>
+              {issue.source_local_dates.length > 0 &&
+                <p>Occurrences sources : {issue.source_local_dates.join(", ")}.</p>}
+              <p>{issue.code === "OUTSIDE_GENERAL_ENVELOPE" ?
+                "Élargis l'enveloppe, ajuste la catégorie ou corrige les deux dans le même brouillon." :
+                "Ajuste les plages conflictuelles dans le même brouillon."}</p>
+              {issue.work_type_id && workTypes.some((type) => type.id === issue.work_type_id) &&
+                <button type="button" onClick={() => setSelectedType(issue.work_type_id!)}>
+                  Afficher la section {workTypes.find((type) => type.id === issue.work_type_id)?.name}
+                </button>}
+              {issue.code === "OUTSIDE_GENERAL_ENVELOPE" &&
+                <button type="button" onClick={() => setSelectedType("GENERAL")}>
+                  Afficher l'enveloppe générale
+                </button>}
+            </li>)}</ul>
+        </section>}
+        {!(preview.result.invalid_diagnostics || []).length &&
+          preview.result.invalid_conflicts.map((issue) => <p key={issue} className="error">
+            {diagnosticTitle(issue)} : consulte la grille et les règles associées.</p>)}
         {preview.result.civil_time_issues.map((issue, index) =>
           <p key={index} className="error">{issue.date} : {issue.reason}</p>)}
         {preview.result.unresolved_exceptions.length > 0 &&

@@ -46,3 +46,10 @@
   .weeklyCopyControls > label, .weeklyCopyControls fieldset { flex: 1 0 100%; }
   .weeklyFooter button { width: 100%; }
 }
+
+.weeklyDiagnostics { border-top: 1px solid #dbe5ef; padding-top: 12px; }
+.weeklyDiagnostics > ul { display: grid; gap: 10px; list-style: none; padding: 0; }
+.weeklyDiagnostics > ul > li { border: 1px solid #f0c5a1; border-radius: 9px;
+  background: #fffaf5; padding: 12px; }
+.weeklyDiagnostics li p { margin: 7px 0; font-size: .87rem; overflow-wrap: anywhere; }
+.weeklyDiagnostics li button { margin: 5px 9px 2px 0; }

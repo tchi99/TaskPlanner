@@ -157,18 +157,18 @@ test("TP-023B : copie ciblée après aperçu local, puis aperçu serveur groupé
   expect(body.sections.map((cell: { weekday: number }) => cell.weekday).sort()).toEqual([0, 1]);
 });
 
-test("une règle hebdomadaire se crée par API depuis la vue desktop", async ({ page }, testInfo) => {
+test("TP-023D : la grille remplace la création legacy, archive en lecture seule", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chromium", "Scénario desktop.");
   await expect(page.getByRole("heading", { name: "Disponibilités" })).toBeVisible();
-  await page.getByText("Gestion avancée des anciennes séries et règles").click();
-  await expect(page.getByRole("heading", { name: "Nouvelle plage récurrente" })).toBeVisible();
-  await page.getByLabel("Date d'effet", { exact: true }).fill("2026-10-19");
-  await page.getByLabel("Nature").selectOption("CATEGORIZED");
-  await page.getByLabel("Type de travail").selectOption("focus-type");
-  await page.getByLabel("Protection de la plage").selectOption("PROTECTED");
-  await page.getByRole("button", { name: "Créer la règle" }).click();
-  await expect(page.getByText("Horaire habituel enregistré.")).toBeVisible();
-  await expect(page.getByText("Protégée", { exact: true }).first()).toBeVisible();
+  await page.getByLabel("Section de l'horaire").selectOption("focus-type");
+  await page.getByRole("button", { name: "Ajouter une plage au Lundi" }).click();
+  await page.getByLabel("Lundi plage 1 mode").selectOption("PROTECTED");
+  await page.getByRole("button", { name: "Prévisualiser les changements" }).click();
+  await page.getByRole("button", { name: "Confirmer et enregistrer l'horaire futur" }).click();
+  await expect(page.getByText(/Horaire futur enregistré atomiquement/)).toBeVisible();
+  await page.getByText("Consulter les séries historiques (lecture seule)").click();
+  await expect(page.getByRole("heading", { name: "Sources de l'horaire conservées" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Créer la règle" })).toHaveCount(0);
   await page.getByRole("button", { name: "Semaine réelle" }).click();
   await expect(page.getByText("minutes déclarées")).toBeVisible();
   await expect(page.getByText(/BOOKING_OUTSIDE_EFFECTIVE_AVAILABILITY/)).toBeVisible();
@@ -224,8 +224,8 @@ test("une réservation sans conflit s'annule dans la semaine réelle sans mutati
 
 test("l'horaire habituel annule seulement la réservation datée, sans toucher la série", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Réservations de la semaine" })).toBeVisible();
-  await page.getByText("Gestion avancée des anciennes séries et règles").click();
-  await expect(page.getByRole("heading", { name: "Règles hebdomadaires" })).toBeVisible();
+  await page.getByText("Consulter les séries historiques (lecture seule)").click();
+  await expect(page.getByRole("heading", { name: "Sources de l'horaire conservées" })).toBeVisible();
   await page.getByRole("button", { name: "Annuler la réservation booking-" }).click();
   await page.getByRole("button", { name: "Prévisualiser la résolution" }).click();
   await expect(page.getByText(/les règles récurrentes restent intactes/)).toBeVisible();
@@ -235,9 +235,9 @@ test("l'horaire habituel annule seulement la réservation datée, sans toucher l
   await page.getByRole("button", { name: "Confirmer cette décision" }).click();
   await expect(page.getByText("Aucune réservation locale active sur la semaine.")).toBeVisible();
   await page.getByRole("button", { name: "Horaire habituel" }).click();
-  await page.getByText("Gestion avancée des anciennes séries et règles").click();
-  await expect(page.getByRole("heading", { name: "Règles hebdomadaires" })).toBeVisible();
-  await expect(page.getByText("Aucune règle habituelle.")).toBeVisible();
+  await page.getByText("Consulter les séries historiques (lecture seule)").click();
+  await expect(page.getByRole("heading", { name: "Sources de l'horaire conservées" })).toBeVisible();
+  await expect(page.getByText("Aucune règle historique.")).toBeVisible();
   await page.getByRole("button", { name: "Semaine suivante" }).click();
   await expect(page.getByText("Aucune réservation locale active sur la semaine.")).toBeVisible();
 });
@@ -479,4 +479,64 @@ test("TP-023C : anomalie civile empêche de confirmer; grille utilisable au clav
   const hasOverflow = await page.evaluate(() =>
     document.documentElement.scrollWidth > window.innerWidth + 1);
   expect(hasOverflow).toBe(false);
+});
+
+
+test("TP-023D : diagnostic contextualisé, autre fuseau et brouillon conservé", async ({ page }) => {
+  await page.route("**/api/availability/weekly-schedule/preview", (route) => {
+    const body = route.request().postDataJSON();
+    const diagnostic = (status: "NEW" | "PREEXISTING", start: string, end: string) => ({
+      code: "OUTSIDE_GENERAL_ENVELOPE", status, date: "2027-10-19", weekday: 1,
+      timezone_name: "America/Toronto", starts_at: start, ends_at: end,
+      work_type_id: "focus-type", work_type_ids: ["focus-type"],
+      rule_ids: ["foreign-rule"], sources: ["RULE:foreign-rule:2027-10-19:v1"],
+      source_timezones: ["UTC"], source_local_dates: ["2027-10-19"],
+      cause: "NO_COVERING_GENERAL", remediation: "Corriger les deux sections.",
+    });
+    return route.fulfill({ status: 200, contentType: "application/json",
+      body: JSON.stringify(tp023cPreview(body, {
+        invalid_conflicts: ["OUTSIDE_GENERAL_ENVELOPE"],
+        invalid_diagnostics: [
+          diagnostic("NEW", "2027-10-19T10:00:00-04:00", "2027-10-19T10:30:00-04:00"),
+          diagnostic("PREEXISTING", "2027-10-19T07:00:00-04:00", "2027-10-19T08:00:00-04:00"),
+        ],
+      })),
+    });
+  });
+  await page.getByRole("button", { name: "Ajouter une plage au Lundi" }).click();
+  await page.getByLabel("Lundi plage 1 début", { exact: true }).fill("08:00");
+  await page.getByRole("button", { name: "Prévisualiser les changements" }).click();
+  const diagnostics = page.getByRole("region", { name: "Diagnostics des disponibilités" });
+  await expect(diagnostics.getByText("Nouveau conflit bloquant").first()).toBeVisible();
+  await expect(diagnostics.getByText("Conflit déjà présent").first()).toBeVisible();
+  await expect(diagnostics.getByText(/Attention : source dans un autre fuseau \(UTC\)/).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Confirmer et enregistrer l'horaire futur" })).toBeDisabled();
+  await diagnostics.getByRole("button", { name: "Afficher la section Concentration" }).first().click();
+  await expect(page.getByLabel("Section de l'horaire")).toHaveValue("focus-type");
+  await page.getByRole("button", { name: "Retour au brouillon" }).click();
+  await page.getByLabel("Section de l'horaire").selectOption("GENERAL");
+  await expect(page.getByLabel("Lundi plage 1 début", { exact: true })).toHaveValue("08:00");
+});
+
+test("TP-023D : conflit structurel préexistant seul n'interdit pas la réparation", async ({ page }) => {
+  await page.route("**/api/availability/weekly-schedule/preview", (route) => {
+    const body = route.request().postDataJSON();
+    return route.fulfill({ status: 200, contentType: "application/json",
+      body: JSON.stringify(tp023cPreview(body, {
+        invalid_conflicts: [], invalid_diagnostics: [{
+          code: "OUTSIDE_GENERAL_ENVELOPE", status: "PREEXISTING",
+          date: "2027-10-19", weekday: 1, timezone_name: "America/Toronto",
+          starts_at: "2027-10-19T07:00:00-04:00", ends_at: "2027-10-19T08:00:00-04:00",
+          work_type_id: "focus-type", work_type_ids: ["focus-type"],
+          rule_ids: ["old-rule"], sources: ["RULE:old-rule:2027-10-19:v1"],
+          source_timezones: ["America/Toronto"], source_local_dates: ["2027-10-19"],
+          cause: "NO_COVERING_GENERAL", remediation: "Réparer l'enveloppe.",
+        }],
+      })),
+    });
+  });
+  await page.getByRole("button", { name: "Ajouter une plage au Lundi" }).click();
+  await page.getByRole("button", { name: "Prévisualiser les changements" }).click();
+  await expect(page.getByText("Conflit déjà présent")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Confirmer et enregistrer l'horaire futur" })).toBeEnabled();
 });
