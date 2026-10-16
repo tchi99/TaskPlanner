@@ -61,6 +61,16 @@ def test_tp024a_retains_legacy_rows_without_guessed_parent(tmp_path):
         assert "scope_id" in {
             row[1] for row in db.execute("PRAGMA table_info(confirmed_time_blocks)")
         }
+        # Every new provenance column has a real, named FK in SQLite.
+        for table in ("recurring_availability_revisions", "availability_exceptions",
+                      "availability_blocks", "confirmed_time_blocks"):
+            assert any(
+                row[2] == "schedule_scopes"
+                and row[3] == "scope_id"
+                and row[4] == "id"
+                and row[6] == "RESTRICT"
+                for row in db.execute(f"PRAGMA foreign_key_list({table})")
+            ), table
     migrate(path, "0015_tp023a", "downgrade")
     with sqlite3.connect(path) as db:
         assert "scope_id" not in {
@@ -68,6 +78,12 @@ def test_tp024a_retains_legacy_rows_without_guessed_parent(tmp_path):
                 "PRAGMA table_info(recurring_availability_revisions)"
             )
         }
+        for table in ("recurring_availability_revisions", "availability_exceptions",
+                      "availability_blocks", "confirmed_time_blocks"):
+            assert all(
+                row[3] != "scope_id"
+                for row in db.execute(f"PRAGMA foreign_key_list({table})")
+            ), table
     migrate(path, "head")
     with sqlite3.connect(path) as db:
         db.execute(

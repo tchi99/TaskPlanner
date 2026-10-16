@@ -67,8 +67,12 @@ def upgrade() -> None:
     for table in ("recurring_availability_revisions", "availability_exceptions",
                   "availability_blocks", "confirmed_time_blocks"):
         with op.batch_alter_table(table) as batch:
-            batch.add_column(sa.Column("scope_id", sa.String(36),
-                                       sa.ForeignKey("schedule_scopes.id", ondelete="RESTRICT"), nullable=True))
+            batch.add_column(sa.Column("scope_id", sa.String(36), nullable=True))
+            # SQLite batch table recreation requires named foreign keys.
+            batch.create_foreign_key(
+                f"fk_{table}_scope_id", "schedule_scopes", ["scope_id"], ["id"],
+                ondelete="RESTRICT",
+            )
 
 
 def downgrade() -> None:
@@ -84,6 +88,7 @@ def downgrade() -> None:
     for table in ("confirmed_time_blocks", "availability_blocks",
                   "availability_exceptions", "recurring_availability_revisions"):
         with op.batch_alter_table(table) as batch:
+            batch.drop_constraint(f"fk_{table}_scope_id", type_="foreignkey")
             batch.drop_column("scope_id")
     op.drop_index("ix_scope_audit_owner", table_name="scope_change_audit")
     op.drop_table("scope_change_audit")
