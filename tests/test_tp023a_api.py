@@ -502,3 +502,48 @@ def test_tp023d_foreign_timezone_hidden_rule_has_actionable_source(runtime):
                foreign["id"] in item["rule_ids"] and
                item["timezone_name"] == ZONE for item in matches)
     assert confirm(client, body, token).status_code == 400
+
+
+def test_tp023d_future_category_another_weekday_is_dated(runtime):
+    client, _ = runtime
+    effect = monday()
+    focus = client.post("/api/work-types", json={"name": "Future focus"}).json()["id"]
+    rule(client, effect, weekdays=(2,), begins="09:00", ends="17:00")
+    _categorized_rule(client, effect + timedelta(days=7), focus, weekday=2)
+    body = draft(client, effect, [slot("11:00", "17:00")], weekday=2)
+    token = preview(client, body)
+    diagnostics = [v for v in token["invalid_diagnostics"]
+                   if v["status"] == "NEW" and v["work_type_id"] == focus]
+    first_wednesday = effect + timedelta(days=9)
+    assert diagnostics and any(v["date"] == str(first_wednesday) and
+                               v["starts_at"][11:16] == "10:00" and
+                               v["ends_at"][11:16] == "11:00" for v in diagnostics)
+    assert confirm(client, body, token).status_code == 400
+
+
+def test_tp023d_cancelled_general_has_removed_cause_without_fake_new_error(runtime):
+    client, _ = runtime
+    effect = monday()
+    focus = client.post("/api/work-types", json={"name": "Focus exception"}).json()["id"]
+    tuesday_general = rule(client, effect, weekdays=(1,), begins="09:00", ends="17:00")
+    rule(client, effect, weekdays=(2,), begins="09:00", ends="17:00")
+    _categorized_rule(client, effect, focus, weekday=1)
+    removed = {
+        "action": "CANCEL", "rule_id": tuesday_general["id"],
+        "original_local_date": str(effect + timedelta(days=1)),
+        "timezone_name": ZONE,
+    }
+    token = client.post("/api/availability/exceptions/preview", json=removed)
+    assert token.status_code == 200, token.text
+    saved = client.post("/api/availability/exceptions", json={
+        **removed, "expected_fingerprint": token.json()["fingerprint"]})
+    assert saved.status_code == 201, saved.text
+
+    body = draft(client, effect, [slot("08:00", "17:00")], weekday=2)
+    result = preview(client, body)
+    issues = [item for item in result["invalid_diagnostics"]
+              if item["code"] == "OUTSIDE_GENERAL_ENVELOPE"]
+    assert issues and result["invalid_conflicts"] == []
+    assert any(item["cause"] == "REMOVED_BY_EXCEPTION" and
+               item["status"] == "PREEXISTING" for item in issues)
+    assert confirm(client, body, result).status_code == 200
