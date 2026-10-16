@@ -616,8 +616,8 @@ test("TP-024B : enveloppe hebdomadaire isolée au parent Travail", async ({ page
 });
 
 test("TP-024B : rattachement daté avec aperçu et confirmation explicites", async ({ page }) => {
-  await page.getByLabel("Sous-catégorie", { exact: true }).selectOption("focus-type");
-  await page.getByLabel("Catégorie cible").selectOption("11111111-1111-4111-8111-111111111111");
+  await page.getByRole("combobox", { name: "Sous-catégorie", exact: true }).selectOption("focus-type");
+  await page.getByRole("combobox", { name: "Catégorie cible", exact: true }).selectOption("11111111-1111-4111-8111-111111111111");
   const preview = page.waitForRequest((value) =>
     value.url().endsWith("/affiliations/preview") && value.method() === "POST");
   await page.getByRole("button", { name: "Prévisualiser le rattachement" }).click();
@@ -651,8 +651,8 @@ test("TP-024B : conflit interparent nouveau bloque la confirmation", async ({ pa
       civil_time_issues: [], unresolved_rule_migrations: [], rules_inventory: [],
       exceptions_inventory: [], manual_blocks_inventory: [], all_future_bookings: [],
     }) }));
-  await page.getByLabel("Sous-catégorie", { exact: true }).selectOption("focus-type");
-  await page.getByLabel("Catégorie cible").selectOption("11111111-1111-4111-8111-111111111111");
+  await page.getByRole("combobox", { name: "Sous-catégorie", exact: true }).selectOption("focus-type");
+  await page.getByRole("combobox", { name: "Catégorie cible", exact: true }).selectOption("11111111-1111-4111-8111-111111111111");
   await page.getByRole("button", { name: "Prévisualiser le rattachement" }).click();
   await expect(page.getByText(/Nouveau — bloquant/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Confirmer le rattachement futur" })).toBeDisabled();
