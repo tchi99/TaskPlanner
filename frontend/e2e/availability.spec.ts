@@ -657,3 +657,152 @@ test("TP-024B : conflit interparent nouveau bloque la confirmation", async ({ pa
   await expect(page.getByText(/Nouveau — bloquant/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Confirmer le rattachement futur" })).toBeDisabled();
 });
+
+
+// TP-024C: all data and endpoints are mocked. These scenarios exercise UX
+// contract boundaries without any real Google writes or production migration.
+test("TP-024C : réservations futures conservées avec consentement explicite", async ({ page }) => {
+  const workScope = "11111111-1111-4111-8111-111111111111";
+  const compatibility = "22222222-2222-4222-8222-222222222222";
+  const preserved = {
+    booking_id: "booking-future", starts_at: "2027-01-18T14:00:00Z",
+    scope_id: null, work_type_id: "focus-type", status: "CONFIRMED",
+  };
+  await page.route("**/api/schedule-scopes/affiliations/preview", (route) =>
+    route.fulfill({ contentType: "application/json", body: JSON.stringify({
+      fingerprint: "d".repeat(64), has_changes: true, projection_days: 93,
+      from_scope_id: compatibility, to_scope_id: workScope,
+      before_minutes_93d: { [compatibility]: 60 },
+      after_minutes_93d: { [workScope]: 60 },
+      global_before_minutes_93d: 60, global_after_minutes_93d: 60,
+      conflicts: [], civil_time_issues: [], unresolved_rule_migrations: [],
+      rules_inventory: [], exceptions_inventory: [], manual_blocks_inventory: [],
+      all_future_bookings: [preserved],
+    }) }));
+  // The shared API mock validates fingerprint "b"; this preview deliberately
+  // issues "d". Model the successful acknowledged confirmation for this case.
+  await page.route("**/api/schedule-scopes/affiliations/confirm", (route) => {
+    const payload = route.request().postDataJSON();
+    const accepted = payload.confirmed === true && payload.acknowledge_bookings === true &&
+      payload.fingerprint === "d".repeat(64);
+    return route.fulfill({
+      status: accepted ? 200 : 422, contentType: "application/json",
+      body: JSON.stringify(accepted ?
+        { applied: true, calendar_written: false } :
+        { detail: "explicit booking acknowledgement required" }),
+    });
+  });
+  await page.getByRole("combobox", { name: "Sous-catégorie", exact: true })
+    .selectOption("focus-type");
+  await page.getByRole("combobox", { name: "Catégorie cible", exact: true })
+    .selectOption(workScope);
+  await page.getByRole("button", { name: "Prévisualiser le rattachement" }).click();
+  await expect(page.getByText(/provenance inconnue/)).toBeVisible();
+  const confirmButton = page.getByRole("button", { name: "Confirmer le rattachement futur" });
+  await expect(confirmButton).toBeDisabled();
+  await page.getByRole("checkbox", {
+    name: /Je reconnais que ces réservations CONFIRMED restent inchangées/,
+  }).check();
+  await expect(confirmButton).toBeEnabled();
+  const confirmation = page.waitForRequest((request) =>
+    request.url().endsWith("/affiliations/confirm") && request.method() === "POST");
+  const acceptedResponse = page.waitForResponse((response) =>
+    response.url().endsWith("/affiliations/confirm") &&
+    response.request().method() === "POST");
+  page.once("dialog", (dialog) => dialog.accept());
+  await confirmButton.click();
+  expect((await confirmation).postDataJSON()).toMatchObject({
+    work_type_id: "focus-type", scope_id: workScope,
+    confirmed: true, acknowledge_bookings: true, fingerprint: "d".repeat(64),
+  });
+  const accepted = await acceptedResponse;
+  expect(accepted.status()).toBe(200);
+  expect(await accepted.json()).toMatchObject({ applied: true, calendar_written: false });
+  await expect(page.getByText(/Aucune réservation ni événement Google déplacé/)).toBeVisible();
+});
+
+
+test("TP-024C : aperçu d'affiliation périmé 409 est invalidé sans confirmation", async ({ page }) => {
+  const workScope = "11111111-1111-4111-8111-111111111111";
+  await page.route("**/api/schedule-scopes/affiliations/confirm", (route) =>
+    route.fulfill({ status: 409, contentType: "application/json",
+      body: JSON.stringify({ detail: "affiliation preview is stale" }) }));
+  await page.getByRole("combobox", { name: "Sous-catégorie", exact: true })
+    .selectOption("focus-type");
+  await page.getByRole("combobox", { name: "Catégorie cible", exact: true })
+    .selectOption(workScope);
+  await page.getByRole("button", { name: "Prévisualiser le rattachement" }).click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Confirmer le rattachement futur" }).click();
+  await expect(page.getByRole("alert")).toContainText("409");
+  await expect(page.getByRole("button", { name: "Confirmer le rattachement futur" }))
+    .toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "Sous-catégorie", exact: true }))
+    .toHaveValue("focus-type");
+  await expect(page.getByRole("button", { name: "Prévisualiser le rattachement" }))
+    .toBeEnabled();
+});
+
+
+test("TP-024C : conflit interparent hérité est visible sans fausse nouvelle erreur", async ({ page }) => {
+  await page.route("**/api/schedule-scopes/affiliations/preview", (route) =>
+    route.fulfill({ contentType: "application/json", body: JSON.stringify({
+      fingerprint: "e".repeat(64), has_changes: true, projection_days: 93,
+      from_scope_id: "22222222-2222-4222-8222-222222222222",
+      to_scope_id: "11111111-1111-4111-8111-111111111111",
+      before_minutes_93d: {}, after_minutes_93d: {},
+      global_before_minutes_93d: 60, global_after_minutes_93d: 60,
+      conflicts: [{
+        code: "INCOMPATIBLE_SCOPES", status: "PREEXISTING",
+        starts_at: "2026-11-02T14:00:00Z", ends_at: "2026-11-02T14:30:00Z",
+        scope_ids: ["11111111-1111-4111-8111-111111111111",
+          "33333333-3333-4333-8333-333333333333"],
+        sources: ["RULE:historic"],
+      }],
+      civil_time_issues: [], unresolved_rule_migrations: [],
+      rules_inventory: [], exceptions_inventory: [], manual_blocks_inventory: [],
+      all_future_bookings: [],
+    }) }));
+  await page.getByRole("combobox", { name: "Sous-catégorie", exact: true })
+    .selectOption("focus-type");
+  await page.getByRole("combobox", { name: "Catégorie cible", exact: true })
+    .selectOption("11111111-1111-4111-8111-111111111111");
+  await page.getByRole("button", { name: "Prévisualiser le rattachement" }).click();
+  await expect(page.getByText(/Préexistant · INCOMPATIBLE_SCOPES/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Confirmer le rattachement futur" }))
+    .toBeEnabled();
+  const noOverflow = await page.evaluate(() =>
+    document.documentElement.scrollWidth <= window.innerWidth + 1);
+  expect(noOverflow).toBe(true);
+});
+
+
+test("TP-024C : créer une feuille ne l'affecte pas automatiquement à son parent", async ({ page }) => {
+  let affiliationConfirms = 0;
+  page.on("request", (request) => {
+    if (request.url().endsWith("/affiliations/confirm")) affiliationConfirms++;
+  });
+  const scopeManager = page.getByRole("region", { name: "Catégories hiérarchiques" });
+  const createLeaf = scopeManager.locator("form").filter({
+    has: page.getByRole("heading", { name: "Nouvelle sous-catégorie" }),
+  });
+  await createLeaf.getByRole("textbox", { name: "Nom" }).fill("Famille");
+  await createLeaf.getByRole("combobox", { name: "Parent souhaité" })
+    .selectOption("33333333-3333-4333-8333-333333333333");
+  await createLeaf.getByRole("button", { name: "Créer puis rattacher" }).click();
+  await expect(page.getByText(/Sous-catégorie créée en compatibilité/)).toBeVisible();
+  await expect(scopeManager.getByRole("combobox", { name: "Sous-catégorie", exact: true }))
+    .toHaveValue("leaf-2");
+  await expect(scopeManager.getByRole("combobox", { name: "Catégorie cible", exact: true }))
+    .toHaveValue("33333333-3333-4333-8333-333333333333");
+  expect(affiliationConfirms).toBe(0);
+  const preview = page.waitForRequest((request) =>
+    request.url().endsWith("/affiliations/preview") && request.method() === "POST");
+  await page.getByRole("button", { name: "Prévisualiser le rattachement" }).click();
+  expect((await preview).postDataJSON()).toMatchObject({
+    work_type_id: "leaf-2",
+    scope_id: "33333333-3333-4333-8333-333333333333",
+    expected_affiliation_version: 0,
+  });
+  expect(affiliationConfirms).toBe(0);
+});
