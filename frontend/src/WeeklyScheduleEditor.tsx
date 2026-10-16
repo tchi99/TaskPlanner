@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "./auth";
+import { scopeForAt, type ScopeCatalog } from "./ScheduleCategories";
 import "./weekly-schedule.css";
 
 type WorkType = { id: string; name: string };
@@ -10,13 +11,13 @@ type Slot = {
   mode: Mode | null; start_fold: number | null; end_fold: number | null;
   sources?: { rule_id: string; revision: number }[];
 };
-type Cell = { weekday: number; kind: Kind; work_type_id: string | null; slots: Slot[] };
+type Cell = { weekday: number; kind: Kind; work_type_id: string | null; scope_id?: string | null; slots: Slot[] };
 type GridResponse = {
   effective_from: string; timezone_name: string; source_versions: Record<string, number>;
   sections: (Omit<Cell, "slots"> & { slots: Omit<Slot, "id">[] })[];
   future_revisions: { rule_id: string; number: number; effective_from: string }[];
 };
-type EditSection = { weekday: number; kind: Kind; work_type_id: string | null; slots: Omit<Slot, "id" | "sources">[] };
+type EditSection = { weekday: number; kind: Kind; work_type_id: string | null; scope_id?: string; slots: Omit<Slot, "id" | "sources">[] };
 type EditPayload = {
   effective_from: string; timezone_name: string; sections: EditSection[];
   expected_versions: Record<string, number>;
@@ -29,6 +30,7 @@ type InvalidDiagnostic = {
   code: string; status: "NEW" | "PREEXISTING"; date: string; weekday: number;
   timezone_name: string; starts_at: string; ends_at: string;
   work_type_id: string | null; work_type_ids: string[]; rule_ids: string[];
+  scope_ids?: string[];
   sources: string[]; source_timezones: string[]; source_local_dates: string[];
   cause: string; remediation: string;
 };
@@ -60,13 +62,13 @@ function addCivilDays(iso: string, daysToAdd: number): string {
   date.setUTCDate(date.getUTCDate() + daysToAdd);
   return date.toISOString().slice(0, 10);
 }
-function cellKey(kind: Kind, type: string | null, weekday: number): string {
-  return kind + ":" + (type || "NULL") + ":" + weekday;
+function cellKey(kind: Kind, type: string | null, weekday: number, scope: string | null): string {
+  return kind + ":" + (type || "NULL") + ":" + weekday + ":" + (scope || "LEGACY");
 }
 function fromServer(grid: GridResponse): Record<string, Slot[]> {
   const cells: Record<string, Slot[]> = {};
   for (const section of grid.sections) {
-    const key = cellKey(section.kind, section.work_type_id, section.weekday);
+    const key = cellKey(section.kind, section.work_type_id, section.weekday, section.scope_id || null);
     cells[key] = section.slots.map((slot) => ({ ...slot, id: crypto.randomUUID() }));
   }
   return cells;
@@ -86,6 +88,8 @@ function diagnosticTitle(code: string): string {
   if (code === "OUTSIDE_GENERAL_ENVELOPE") return "Catégorie hors enveloppe générale";
   if (code === "INCOMPATIBLE_WORK_TYPES") return "Catégories en conflit";
   if (code === "INCOMPATIBLE_MODES") return "Protections de plages incompatibles";
+  if (code === "INCOMPATIBLE_SCOPES") return "Chevauchement de catégories parentes";
+  if (code === "AFFILIATION_SCOPE_MISMATCH") return "Sous-catégorie rattachée à un autre parent";
   return code;
 }
 function diagnosticCause(item: InvalidDiagnostic): string {
@@ -107,9 +111,9 @@ async function callApi<T>(url: string, options?: RequestInit): Promise<T> {
   return await response.json() as T;
 }
 
-export function WeeklyScheduleEditor({ workTypes, zone, onSaved, onDirtyChange }: {
-  workTypes: WorkType[]; zone: string; onSaved: () => Promise<void>;
-  onDirtyChange: (value: boolean) => void;
+export function WeeklyScheduleEditor({ workTypes, catalog, scopeId, zone, onSaved, onDirtyChange }: {
+  workTypes: WorkType[]; catalog: ScopeCatalog | null; scopeId: string | null;
+  zone: string; onSaved: () => Promise<void>; onDirtyChange: (value: boolean) => void;
 }) {
   const [effectiveFrom, setEffectiveFrom] = useState(() => addCivilDays(civilDayInZone(zone), 1));
   const [grid, setGrid] = useState<GridResponse | null>(null);
@@ -130,10 +134,19 @@ export function WeeklyScheduleEditor({ workTypes, zone, onSaved, onDirtyChange }
   useEffect(() => { onDirtyChange(dirty.length > 0); }, [dirty.length, onDirtyChange]);
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
 
+  const visibleTypes = catalog ? workTypes.filter((type) =>
+    scopeForAt(type.id, effectiveFrom, catalog) === (scopeId || catalog.compatibility_scope_id)) : workTypes;
+  const scopeName = scopeId ?
+    catalog?.scopes.find((value) => value.id === scopeId)?.name || "Catégorie parente" :
+    "Compatibilité (héritage)";
   const kind: Kind = selectedType === "GENERAL" ? "GENERAL" : "CATEGORIZED";
   const typeId = kind === "GENERAL" ? null : selectedType;
   const minimum = addCivilDays(civilDayInZone(zone), 1);
-  const keyFor = (day: number) => cellKey(kind, typeId, day);
+  const keyFor = (day: number) => cellKey(kind, typeId, day, scopeId);
+  useEffect(() => {
+    if (selectedType !== "GENERAL" && !visibleTypes.some((value) => value.id === selectedType))
+      setSelectedType("GENERAL");
+  }, [selectedType, effectiveFrom, scopeId, catalog, workTypes]);
   const slotsOf = (day: number) => cells[keyFor(day)] || [];
 
   function acceptSnapshot(snapshot: GridResponse, keepDraft: boolean) {
@@ -150,7 +163,8 @@ export function WeeklyScheduleEditor({ workTypes, zone, onSaved, onDirtyChange }
     let active = true;
     setLoading(true); setError(""); setPreview(null);
     const query = "?effective_from=" + encodeURIComponent(effectiveFrom) +
-      "&timezone_name=" + encodeURIComponent(zone);
+      "&timezone_name=" + encodeURIComponent(zone) +
+      (scopeId ? "&scope_id=" + encodeURIComponent(scopeId) : "");
     void callApi<GridResponse>("/api/availability/weekly-schedule" + query)
       .then((snapshot) => { if (active) acceptSnapshot(snapshot, false); })
       .catch((reason: unknown) => {
@@ -159,12 +173,12 @@ export function WeeklyScheduleEditor({ workTypes, zone, onSaved, onDirtyChange }
     return () => { active = false; };
     // A changed date or timezone is a new projection, never a mutation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveFrom, zone]);
+  }, [effectiveFrom, zone, scopeId]);
 
   function changeDate(value: string) {
     if (!value || value === effectiveFrom) return;
     if (dirty.length && !window.confirm("Abandonner le brouillon et lire la grille à cette autre date ?")) return;
-    setEffectiveFrom(value); setNotice("");
+    setEffectiveFrom(value); setSelectedType("GENERAL"); setNotice("");
   }
   function modify(day: number, slots: Slot[]) {
     const key = keyFor(day);
@@ -195,6 +209,7 @@ export function WeeklyScheduleEditor({ workTypes, zone, onSaved, onDirtyChange }
         return {
           weekday: Number(dayPart), kind: kindPart as Kind,
           work_type_id: typePart === "NULL" ? null : typePart,
+          ...(scopeId ? { scope_id: scopeId } : {}),
           slots: (cells[key] || []).map((slot) => ({
             starts_at_local: slot.starts_at_local, ends_at_local: slot.ends_at_local,
             mode: slot.mode, start_fold: slot.start_fold, end_fold: slot.end_fold,
@@ -216,7 +231,8 @@ export function WeeklyScheduleEditor({ workTypes, zone, onSaved, onDirtyChange }
     setBusy(true); setError("");
     try {
       const query = "?effective_from=" + encodeURIComponent(effectiveFrom) +
-        "&timezone_name=" + encodeURIComponent(zone);
+        "&timezone_name=" + encodeURIComponent(zone) +
+      (scopeId ? "&scope_id=" + encodeURIComponent(scopeId) : "");
       const snapshot = await callApi<GridResponse>("/api/availability/weekly-schedule" + query);
       acceptSnapshot(snapshot, keepDraft);
       setNotice(keepDraft ? "Versions actualisées. Le brouillon est conservé; refais l'aperçu." : "Grille actualisée.");
@@ -266,7 +282,7 @@ export function WeeklyScheduleEditor({ workTypes, zone, onSaved, onDirtyChange }
   return <section className="availabilityCard weeklyEditor" aria-label="Éditeur hebdomadaire">
     <div className="availabilityCardHeading">
       <div><h3>Grille de l'horaire habituel</h3>
-        <p className="muted">Modifie les occurrences futures par jour et par type. La semaine réelle, les exceptions et les réservations restent distinctes.</p></div>
+        <p className="muted">Catégorie parente : {scopeName}. Modifie uniquement ses sections futures. Les exceptions et les réservations restent distinctes.</p></div>
       <button type="button" disabled={busy || loading} onClick={() => {
         if (!dirty.length || window.confirm("Abandonner le brouillon et recharger l'horaire ?"))
           void readAgain(false);
@@ -282,8 +298,8 @@ export function WeeklyScheduleEditor({ workTypes, zone, onSaved, onDirtyChange }
         <select value={selectedType} onChange={(event) => {
           setSelectedType(event.target.value); setPreparedCopy(null);
         }}>
-          <option value="GENERAL">Enveloppe générale (NULL)</option>
-          {workTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
+          <option value="GENERAL">Enveloppe générale (NULL de {scopeName})</option>
+          {visibleTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
         </select>
       </label>
     </div>
@@ -292,8 +308,8 @@ export function WeeklyScheduleEditor({ workTypes, zone, onSaved, onDirtyChange }
     {notice && <p role="status" className="availabilityNotice">{notice}</p>}
     {!loading && grid && <>
       <p className="muted">{kind === "GENERAL" ?
-        "L'enveloppe définit le temps admissible non catégorisé; les trous restent indisponibles." :
-        "Chaque plage a son propre mode. Retirer une catégorie restitue NULL seulement sous l'enveloppe générale."}
+        "L'enveloppe définit le temps admissible de ce parent uniquement; les trous restent indisponibles." :
+        "Chaque plage a son propre mode. Retirer une catégorie restitue NULL uniquement dans son parent."}
       </p>
       <div className="weeklyDays" aria-label="Grille habituelle du lundi au dimanche">
         {days.map((dayName, day) => {
@@ -471,7 +487,10 @@ export function WeeklyScheduleEditor({ workTypes, zone, onSaved, onDirtyChange }
               {" "}{issue.starts_at.slice(11, 16)}–{issue.ends_at.slice(11, 16)}
               {issue.starts_at.slice(0, 10) !== issue.ends_at.slice(0, 10) &&
                 " (fin " + issue.ends_at.slice(0, 10) + ")"}
-              <p>{issue.work_type_ids.map((id) =>
+              {issue.scope_ids && issue.scope_ids.length > 0 && <p>Parents concernés :
+                 {" "}{issue.scope_ids.map((id) => catalog?.scopes.find((scope) => scope.id === id)?.name ||
+                   (catalog?.compatibility_scope_id === id ? "Compatibilité" : id.slice(0, 8))).join(" / ")}</p>}
+               <p>{issue.work_type_ids.map((id) =>
                 workTypes.find((type) => type.id === id)?.name || "Type " + id.slice(0, 8)).join(" / ")
                 || "Section générale"} · {diagnosticCause(issue)}</p>
               <p>Sources : {issue.rule_ids.map((id) => "règle " + id.slice(0, 8)).join(", ") ||
@@ -485,7 +504,7 @@ export function WeeklyScheduleEditor({ workTypes, zone, onSaved, onDirtyChange }
               <p>{issue.code === "OUTSIDE_GENERAL_ENVELOPE" ?
                 "Élargis l'enveloppe, ajuste la catégorie ou corrige les deux dans le même brouillon." :
                 "Ajuste les plages conflictuelles dans le même brouillon."}</p>
-              {issue.work_type_id && workTypes.some((type) => type.id === issue.work_type_id) &&
+              {issue.work_type_id && visibleTypes.some((type) => type.id === issue.work_type_id) &&
                 <button type="button" onClick={() => setSelectedType(issue.work_type_id!)}>
                   Afficher la section {workTypes.find((type) => type.id === issue.work_type_id)?.name}
                 </button>}
