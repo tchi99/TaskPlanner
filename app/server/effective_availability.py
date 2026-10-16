@@ -37,6 +37,7 @@ class ExceptionSettings(BaseModel):
     timezone_name: str = "UTC"
     kind: RuleKind | None = None
     work_type_id: UUID | None = None
+    scope_id: UUID | None = None
     mode: AvailabilityMode | None = None
     enabled: bool = True
     reason: str | None = Field(default=None, max_length=500)
