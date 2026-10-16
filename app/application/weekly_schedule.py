@@ -301,8 +301,6 @@ def _invalid_details(before, after, original_rules, future_rules,
             if not preexisting:
                 new_codes.add(issue.code)
             total += 1
-            if len(results) >= 500:
-                continue
             results.append({
                 "code": issue.code, "status": status,
                 "date": start.astimezone(local_zone).date().isoformat(),
@@ -323,7 +321,11 @@ def _invalid_details(before, after, original_rules, future_rules,
                     if issue.code == "OUTSIDE_GENERAL_ENVELOPE"
                     else "Corriger les plages ou modes qui se chevauchent dans un même brouillon."),
             })
-    return sorted(new_codes), results, total > len(results)
+    # Prioritize newly introduced violations even if historic data contains
+    # hundreds of unrelated old fragments across the 93-day window.
+    results.sort(key=lambda row: (row["status"] != "NEW", row["starts_at"],
+                                  row["code"], row["work_type_ids"]))
+    return sorted(new_codes), results[:500], total > 500
 
 
 def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
