@@ -98,6 +98,10 @@ def preview_time_blocks(
                 raise ValueError("booking scope is ambiguous or unavailable; preview again")
             return next(iter(matches))
 
+        # The compatibility parent is a virtual read identity until a
+        # scoped FK is actually persisted. Materialize it under this lock.
+        if any(source_scope(item) == compatibility for item in result.suggestions):
+            uow.schedule_scopes.ensure_compatibility(owner_id)
         accepted = tuple(ConfirmedTimeBlock(
             week_start=week_start,
             task_id=s.task_id,

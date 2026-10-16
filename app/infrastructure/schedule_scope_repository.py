@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+import json
 from uuid import UUID, uuid4
 
 from sqlalchemy import select, update
@@ -135,7 +136,8 @@ class SqlScheduleScopeRepository:
     def audit(self, owner: str, kind: str, payload: dict, command_id: UUID | None) -> None:
         self.session.add(ScopeChangeAuditRecord(
             id=str(uuid4()), owner_id=owner, kind=kind,
-            command_id=str(command_id) if command_id else None, payload=payload,
+            command_id=str(command_id) if command_id else None,
+            payload=json.loads(json.dumps(payload, default=str)),
             recorded_at=datetime.now(timezone.utc),
         ))
         self.session.flush()
