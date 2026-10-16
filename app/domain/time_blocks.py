@@ -238,8 +238,8 @@ def suggest_time_blocks(
                 if work_type_scopes is not None:
                     target_scopes = ({work_type_scopes[work_type]}
                                      if work_type in work_type_scopes else set())
-                    if donor in work_type_scopes:
-                        donor_scopes = {work_type_scopes[donor]}
+                    donor_scopes = ({work_type_scopes[donor]}
+                                    if donor in work_type_scopes else set())
                 elif not target_scopes and len(represented_scopes) == 1:
                     # Historical direct-call semantics in the one-parent case.
                     target_scopes = represented_scopes

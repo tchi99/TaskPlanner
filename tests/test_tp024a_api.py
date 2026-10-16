@@ -171,14 +171,10 @@ def test_stale_scope_version_and_affiliation_return_409_no_partial_writes(runtim
     corrected = {**body, "expected_scope_version": 2}
     fresh = preview_affiliation(client, corrected)
     assert confirm_affiliation(client, corrected, fresh).status_code == 200
-    duplicated = preview_affiliation(client, {
-        **corrected, "effective_from": str(monday() + timedelta(days=7)),
-        "expected_affiliation_version": 1,
-    })
-    assert confirm_affiliation(client, {
-        **corrected, "effective_from": str(monday() + timedelta(days=7)),
-        "expected_affiliation_version": 1,
-    }, duplicated).status_code == 200
+    other = make_scope(client, "Personnel")
+    followup = draft_affiliation(one, other, monday() + timedelta(days=7), 1)
+    duplicated = preview_affiliation(client, followup)
+    assert confirm_affiliation(client, followup, duplicated).status_code == 200
     with factory() as session:
         assert session.scalar(select(func.count()).select_from(WorkTypeScopeAssignmentRecord)) == 2
 

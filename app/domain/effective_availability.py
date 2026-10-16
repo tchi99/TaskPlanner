@@ -250,7 +250,7 @@ def project_effective(
                 or (booking.transferred_from is not None
                     and v.work_type_id == booking.transferred_from
                     and v.mode is AvailabilityMode.PREFERRED
-                    and (booking.scope_id is None or v.scope_id == booking.scope_id))
+                    and (v.scope_id == (booking.scope_id or compatibility_id)))
              ) and v.starts_at < end and v.ends_at > start),
             key=lambda v: v.starts_at,
         )

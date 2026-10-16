@@ -169,6 +169,31 @@ def _plan(uow: UnitOfWork, owner: str, draft: AffiliationDraft):
     missing = requested - set(remapped) - {UUID(v["rule_id"]) for v in unresolved}
     if missing:
         raise LookupError("a requested remap series was not found for this owner")
+    # A leaf's persisted future schedule must not silently remain in the
+    # former scope beyond 93 days. The migration is explicit or refused.
+    for rule in rules:
+        if rule.id in requested:
+            continue
+        checkpoints = [draft.effective_from] + sorted({
+            rev.effective_from for rev in rule.revisions
+            if rev.effective_from > draft.effective_from
+        })
+        for checkpoint in checkpoints:
+            applicable = [rev for rev in rule.revisions
+                          if rev.effective_from <= checkpoint]
+            if not applicable or any(rev.supersedes_future for rev in applicable):
+                continue
+            active = max(applicable, key=lambda rev: (rev.effective_from, rev.number))
+            if (active.enabled
+                    and (active.valid_until is None or checkpoint < active.valid_until)
+                    and active.kind is RuleKind.CATEGORIZED
+                    and active.work_type_id == draft.work_type_id
+                    and active.scope_id != draft.scope_id):
+                unresolved.append({
+                    "rule_id": str(rule.id),
+                    "reason": "future categorized occurrence must be explicitly migrated",
+                })
+                break
     next_rules = tuple(replace(rule, version=rule.version+1,
                                revisions=rule.revisions+(remapped[rule.id],))
                        if rule.id in remapped else rule for rule in rules)
