@@ -118,6 +118,7 @@ def suggest_time_blocks(
     *, preferred_blocks: Sequence[AvailabilityBlock] = (),
     offer_transfers: bool = False,
     availability_fingerprint: str | None = None,
+    work_type_scopes: dict[UUID, UUID] | None = None,
 ) -> TimeBlockPreview:
     """Greedily place user-ordered open work units inside genuinely free time.
 
@@ -145,6 +146,8 @@ def suggest_time_blocks(
         "week": week_start.isoformat(), "timezone": timezone_name,
         "availability_revision": availability_fingerprint,
         "offer_transfers": offer_transfers,
+        "work_type_scopes": sorted((str(k), str(v)) for k, v in
+                                   (work_type_scopes or {}).items()),
         "preferred": sorted(str(v.id) for v in preferred_blocks),
         "manual": sorted((str(b.id), b.starts_at.isoformat(), b.ends_at.isoformat(),
                           str(b.work_type_id), str(b.scope_id)) for b in manual_blocks),
@@ -216,6 +219,7 @@ def suggest_time_blocks(
     scope_types: dict[UUID | None, set[UUID | None]] = {}
     for block in manual_blocks:
         scope_types.setdefault(block.work_type_id, set()).add(block.scope_id)
+    represented_scopes = set().union(*scope_types.values()) if scope_types else set()
     if offer_transfers and pending and preferred_blocks:
         tentative = tuple(ConfirmedTimeBlock(
             week_start, s.task_id, s.segment_id, s.work_type_id,
@@ -231,6 +235,14 @@ def suggest_time_blocks(
                     continue
                 donor_scopes = scope_types.get(donor, set())
                 target_scopes = scope_types.get(work_type, set())
+                if work_type_scopes is not None:
+                    target_scopes = ({work_type_scopes[work_type]}
+                                     if work_type in work_type_scopes else set())
+                    if donor in work_type_scopes:
+                        donor_scopes = {work_type_scopes[donor]}
+                elif not target_scopes and len(represented_scopes) == 1:
+                    # Historical direct-call semantics in the one-parent case.
+                    target_scopes = represented_scopes
                 if (len(donor_scopes) != 1 or len(target_scopes) != 1
                         or donor_scopes != target_scopes):
                     continue

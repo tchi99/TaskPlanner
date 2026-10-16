@@ -46,7 +46,7 @@ def test_legacy_revisions_preserved_same_date_and_downgrade_guard(tmp_path):
     migrate(path, "head")
     with sqlite3.connect(path) as db:
         assert db.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0015_tp023a",
+            "0016_tp024a",
         )
         assert db.execute(
             "SELECT number, effective_from, supersedes_future "
@@ -76,15 +76,15 @@ def test_legacy_revisions_preserved_same_date_and_downgrade_guard(tmp_path):
     migrate(path, "0014_tp022r", "downgrade", succeed=False)
 
 
-def test_empty_tp023a_roundtrips_to_legacy_migration(tmp_path):
+def test_tp024a_upgrade_preserves_tp023a_and_blocks_unsafe_downgrade(tmp_path):
     path = tmp_path / "empty.sqlite"
     migrate(path, "head")
-    migrate(path, "0014_tp022r", "downgrade")
+    migrate(path, "0015_tp023a", "downgrade")
     with sqlite3.connect(path) as db:
         assert db.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0014_tp022r",
+            "0015_tp023a",
         )
-        assert "supersedes_future" not in {
+        assert "scope_id" not in {
             row[1] for row in db.execute(
                 "PRAGMA table_info(recurring_availability_revisions)"
             )
