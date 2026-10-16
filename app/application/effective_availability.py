@@ -13,6 +13,7 @@ from app.application.uow import UnitOfWork
 from app.domain.availability_exceptions import AvailabilityException, ExceptionAction
 from app.domain.effective_availability import EffectiveProjection, project_effective
 from app.domain.recurring_availability import RuleConflict, expand_rules
+from app.domain.schedule_scopes import compatibility_scope_id
 
 
 def _weeks(start: date, end: date):
@@ -42,7 +43,9 @@ def read_effective(
         raise ValueError("projection requires 1 to 93 days")
     with uow:
         return project_effective(*_state(uow, owner_id, start, end),
-                                 start, end, timezone_name)
+                                 start, end, timezone_name,
+                                 compatibility_id=compatibility_scope_id(owner_id),
+                                 affiliations=uow.schedule_scopes.affiliations(owner_id))
 
 
 def list_exceptions(uow: UnitOfWork, owner_id: str):
