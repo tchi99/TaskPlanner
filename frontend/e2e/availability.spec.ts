@@ -756,3 +756,34 @@ test("TP-024C : conflit interparent hérité est visible sans fausse nouvelle er
     document.documentElement.scrollWidth <= window.innerWidth + 1);
   expect(noOverflow).toBe(true);
 });
+
+
+test("TP-024C : créer une feuille ne l'affecte pas automatiquement à son parent", async ({ page }) => {
+  let affiliationConfirms = 0;
+  page.on("request", (request) => {
+    if (request.url().endsWith("/affiliations/confirm")) affiliationConfirms++;
+  });
+  const scopeManager = page.getByRole("region", { name: "Catégories hiérarchiques" });
+  const createLeaf = scopeManager.locator("form").filter({
+    has: page.getByRole("heading", { name: "Nouvelle sous-catégorie" }),
+  });
+  await createLeaf.getByRole("textbox", { name: "Nom" }).fill("Famille");
+  await createLeaf.getByRole("combobox", { name: "Parent souhaité" })
+    .selectOption("33333333-3333-4333-8333-333333333333");
+  await createLeaf.getByRole("button", { name: "Créer puis rattacher" }).click();
+  await expect(page.getByText(/Sous-catégorie créée en compatibilité/)).toBeVisible();
+  await expect(scopeManager.getByRole("combobox", { name: "Sous-catégorie", exact: true }))
+    .toHaveValue("leaf-2");
+  await expect(scopeManager.getByRole("combobox", { name: "Catégorie cible", exact: true }))
+    .toHaveValue("33333333-3333-4333-8333-333333333333");
+  expect(affiliationConfirms).toBe(0);
+  const preview = page.waitForRequest((request) =>
+    request.url().endsWith("/affiliations/preview") && request.method() === "POST");
+  await page.getByRole("button", { name: "Prévisualiser le rattachement" }).click();
+  expect((await preview).postDataJSON()).toMatchObject({
+    work_type_id: "leaf-2",
+    scope_id: "33333333-3333-4333-8333-333333333333",
+    expected_affiliation_version: 0,
+  });
+  expect(affiliationConfirms).toBe(0);
+});
