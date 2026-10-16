@@ -150,3 +150,69 @@ def test_dst_fallback_is_partitioned_in_utc_without_double_count():
     assert result.expansion_issues == ()
     assert result.declared_minutes == 120
     assert all(b.scope_id == parent for b in result.blocks)
+
+
+# TP-024C: the same civil clock can designate different physical instants.
+def test_tp024c_fall_back_two_scopes_on_distinct_folds_are_disjoint():
+    sunday = date(2026, 11, 1)
+    scope_a, scope_b, compat = uuid4(), uuid4(), uuid4()
+    def folded(scope, fold):
+        ident = uuid4()
+        revision = RuleRevision(
+            ident, 1, sunday, None, ZONE, (6,), "01:00", "01:30",
+            RuleKind.GENERAL, None, None,
+            start_fold=fold, end_fold=fold, scope_id=scope,
+        )
+        return RecurringAvailabilityRule(ident, "owner", 1, (revision,))
+    result = project_effective(
+        (folded(scope_a, 0), folded(scope_b, 1)), (), (), (),
+        sunday, sunday + timedelta(days=1), ZONE, compatibility_id=compat,
+    )
+    assert not result.expansion_issues
+    assert not any(issue.code == "INCOMPATIBLE_SCOPES" for issue in result.issues)
+    assert result.declared_minutes == 60
+    assert {block.scope_id for block in result.blocks} == {scope_a, scope_b}
+    # Two wall-clock-identical slots refer to different UTC minutes.
+    first, second = sorted(result.blocks, key=lambda block: block.starts_at)
+    assert first.ends_at <= second.starts_at
+
+
+def test_tp024c_fall_back_parent_overlap_never_double_counts_minutes():
+    sunday = date(2026, 11, 1)
+    a, b, compat = uuid4(), uuid4(), uuid4()
+    first = rule(sunday, a, 6, "01:00", "02:00")
+    first_revision = RuleRevision(
+        first.id, 1, sunday, None, ZONE, (6,), "01:00", "02:00",
+        RuleKind.GENERAL, None, None, start_fold=0, scope_id=a,
+    )
+    second = rule(sunday, b, 6, "01:30", "02:00")
+    second_revision = RuleRevision(
+        second.id, 1, sunday, None, ZONE, (6,), "01:30", "02:00",
+        RuleKind.GENERAL, None, None, start_fold=1, scope_id=b,
+    )
+    result = project_effective((
+        RecurringAvailabilityRule(first.id, "owner", 1, (first_revision,)),
+        RecurringAvailabilityRule(second.id, "owner", 1, (second_revision,)),
+    ), (), (), (), sunday, sunday + timedelta(days=1), ZONE,
+       compatibility_id=compat)
+    assert not result.expansion_issues
+    assert result.declared_minutes == 90
+    conflicts = [issue for issue in result.issues
+                 if issue.code == "INCOMPATIBLE_SCOPES"]
+    assert len(conflicts) == 1
+    assert set(conflicts[0].scope_ids) == {a, b}
+    assert (conflicts[0].ends_at - conflicts[0].starts_at).total_seconds() == 1800
+
+
+def test_tp024c_spring_forward_gap_does_not_create_phantom_parent_capacity():
+    sunday = date(2027, 3, 14)
+    parent = uuid4()
+    missing = rule(sunday, parent, 6, "02:30", "03:30")
+    result = project_effective(
+        (missing,), (), (), (), sunday, sunday + timedelta(days=1),
+        ZONE, compatibility_id=uuid4(),
+    )
+    assert result.declared_minutes == 0
+    assert result.blocks == ()
+    assert any(issue.reason == "NONEXISTENT_LOCAL_TIME"
+               for issue in result.expansion_issues)
