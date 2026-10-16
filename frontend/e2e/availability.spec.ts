@@ -480,3 +480,63 @@ test("TP-023C : anomalie civile empêche de confirmer; grille utilisable au clav
     document.documentElement.scrollWidth > window.innerWidth + 1);
   expect(hasOverflow).toBe(false);
 });
+
+
+test("TP-023D : diagnostic contextualisé, autre fuseau et brouillon conservé", async ({ page }) => {
+  await page.route("**/api/availability/weekly-schedule/preview", (route) => {
+    const body = route.request().postDataJSON();
+    const diagnostic = (status: "NEW" | "PREEXISTING", start: string, end: string) => ({
+      code: "OUTSIDE_GENERAL_ENVELOPE", status, date: "2027-10-19", weekday: 1,
+      timezone_name: "America/Toronto", starts_at: start, ends_at: end,
+      work_type_id: "focus-type", work_type_ids: ["focus-type"],
+      rule_ids: ["foreign-rule"], sources: ["RULE:foreign-rule:2027-10-19:v1"],
+      source_timezones: ["UTC"], source_local_dates: ["2027-10-19"],
+      cause: "NO_COVERING_GENERAL", remediation: "Corriger les deux sections.",
+    });
+    return route.fulfill({ status: 200, contentType: "application/json",
+      body: JSON.stringify(tp023cPreview(body, {
+        invalid_conflicts: ["OUTSIDE_GENERAL_ENVELOPE"],
+        invalid_diagnostics: [
+          diagnostic("NEW", "2027-10-19T10:00:00-04:00", "2027-10-19T10:30:00-04:00"),
+          diagnostic("PREEXISTING", "2027-10-19T07:00:00-04:00", "2027-10-19T08:00:00-04:00"),
+        ],
+      })),
+    });
+  });
+  await page.getByRole("button", { name: "Ajouter une plage au Lundi" }).click();
+  await page.getByLabel("Lundi plage 1 début", { exact: true }).fill("08:00");
+  await page.getByRole("button", { name: "Prévisualiser les changements" }).click();
+  const diagnostics = page.getByRole("region", { name: "Diagnostics des disponibilités" });
+  await expect(diagnostics.getByText("Nouveau conflit bloquant").first()).toBeVisible();
+  await expect(diagnostics.getByText("Conflit déjà présent").first()).toBeVisible();
+  await expect(diagnostics.getByText(/Attention : source dans un autre fuseau \(UTC\)/).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Confirmer et enregistrer l'horaire futur" })).toBeDisabled();
+  await diagnostics.getByRole("button", { name: "Afficher la section Concentration" }).first().click();
+  await expect(page.getByLabel("Section de l'horaire")).toHaveValue("focus-type");
+  await page.getByRole("button", { name: "Retour au brouillon" }).click();
+  await page.getByLabel("Section de l'horaire").selectOption("GENERAL");
+  await expect(page.getByLabel("Lundi plage 1 début", { exact: true })).toHaveValue("08:00");
+});
+
+test("TP-023D : conflit structurel préexistant seul n'interdit pas la réparation", async ({ page }) => {
+  await page.route("**/api/availability/weekly-schedule/preview", (route) => {
+    const body = route.request().postDataJSON();
+    return route.fulfill({ status: 200, contentType: "application/json",
+      body: JSON.stringify(tp023cPreview(body, {
+        invalid_conflicts: [], invalid_diagnostics: [{
+          code: "OUTSIDE_GENERAL_ENVELOPE", status: "PREEXISTING",
+          date: "2027-10-19", weekday: 1, timezone_name: "America/Toronto",
+          starts_at: "2027-10-19T07:00:00-04:00", ends_at: "2027-10-19T08:00:00-04:00",
+          work_type_id: "focus-type", work_type_ids: ["focus-type"],
+          rule_ids: ["old-rule"], sources: ["RULE:old-rule:2027-10-19:v1"],
+          source_timezones: ["America/Toronto"], source_local_dates: ["2027-10-19"],
+          cause: "NO_COVERING_GENERAL", remediation: "Réparer l'enveloppe.",
+        }],
+      })),
+    });
+  });
+  await page.getByRole("button", { name: "Ajouter une plage au Lundi" }).click();
+  await page.getByRole("button", { name: "Prévisualiser les changements" }).click();
+  await expect(page.getByText("Conflit déjà présent")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Confirmer et enregistrer l'horaire futur" })).toBeEnabled();
+});
