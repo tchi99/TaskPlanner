@@ -396,3 +396,109 @@ def test_stale_multi_day_copy_refuses_every_cell_without_partial_mutation(runtim
     with factory() as session:
         assert session.scalar(select(func.count()).select_from(
             WeeklyScheduleCommandRecord)) == 0
+
+
+def _categorized_rule(client, effect, work_type_id, *, zone=ZONE, weekday=1,
+                      begins="10:00", ends="11:00"):
+    result = client.post("/api/availability/rules", json={
+        "effective_from": str(effect), "timezone_name": zone,
+        "days_of_week": [weekday], "starts_at_local": begins,
+        "ends_at_local": ends, "kind": "CATEGORIZED",
+        "work_type_id": work_type_id, "mode": "PREFERRED",
+    })
+    assert result.status_code == 201, result.text
+    return result.json()
+
+
+def test_tp023d_envelope_expansion_and_precise_new_reduction(runtime):
+    client, _ = runtime
+    effect = monday()
+    focus = client.post("/api/work-types", json={"name": "Focus"}).json()["id"]
+    rule(client, effect, weekdays=(1,), begins="09:00", ends="17:00")
+    _categorized_rule(client, effect, focus)
+    baseline = client.get("/api/availability/effective", params={
+        "from": str(effect), "to": str(effect + timedelta(days=7)),
+        "timezone_name": ZONE,
+    }).json()
+    assert not any(item["code"] == "OUTSIDE_GENERAL_ENVELOPE"
+                   for item in baseline["issues"])
+    enlarged = draft(client, effect, [slot("08:00", "17:00")])
+    expanded_preview = preview(client, enlarged)
+    assert expanded_preview["invalid_conflicts"] == []
+    assert confirm(client, enlarged, expanded_preview).status_code == 200
+
+    reduced = draft(client, effect, [slot("10:30", "17:00")])
+    reduced_preview = preview(client, reduced)
+    new = [item for item in reduced_preview["invalid_diagnostics"]
+           if item["code"] == "OUTSIDE_GENERAL_ENVELOPE"
+           and item["status"] == "NEW"]
+    assert new and "OUTSIDE_GENERAL_ENVELOPE" in reduced_preview["invalid_conflicts"]
+    assert any(item["date"] == str(effect + timedelta(days=1)) and
+               item["starts_at"][11:16] == "10:00" and
+               item["ends_at"][11:16] == "10:30" and
+               item["work_type_id"] == focus and
+               item["cause"] == "NO_COVERING_GENERAL"
+               for item in new)
+    assert confirm(client, reduced, reduced_preview).status_code == 400
+    grid = client.get(ROOT, params={
+        "effective_from": str(effect), "timezone_name": ZONE,
+    }).json()
+    general = next(item for item in grid["sections"] if item["kind"] == "GENERAL")
+    assert general["slots"][0]["starts_at_local"] == "08:00"
+
+
+def test_tp023d_improving_preexisting_conflict_never_blocks(runtime):
+    client, _ = runtime
+    effect = monday()
+    focus = client.post("/api/work-types", json={"name": "Focus"}).json()["id"]
+    rule(client, effect, weekdays=(1,), begins="09:00", ends="17:00")
+    _categorized_rule(client, effect, focus, begins="07:00", ends="10:00")
+    enlarged = draft(client, effect, [slot("08:00", "17:00")])
+    token = preview(client, enlarged)
+    assert token["invalid_conflicts"] == []
+    leftovers = [item for item in token["invalid_diagnostics"]
+                 if item["code"] == "OUTSIDE_GENERAL_ENVELOPE"]
+    assert leftovers and all(item["status"] == "PREEXISTING" for item in leftovers)
+    assert any(item["starts_at"][11:16] == "07:00" and
+               item["ends_at"][11:16] == "08:00" for item in leftovers)
+    assert confirm(client, enlarged, token).status_code == 200
+
+
+def test_tp023d_atomic_general_and_category_repair(runtime):
+    client, _ = runtime
+    effect = monday()
+    focus = client.post("/api/work-types", json={"name": "Focus"}).json()["id"]
+    rule(client, effect, weekdays=(1,), begins="09:00", ends="17:00")
+    _categorized_rule(client, effect, focus)
+    body = draft(client, effect, [slot("10:30", "17:00")])
+    body["sections"].append({
+        "weekday": 1, "kind": "CATEGORIZED", "work_type_id": focus,
+        "slots": [{**slot("10:30", "11:00"), "mode": "PREFERRED"}],
+    })
+    token = preview(client, body)
+    assert token["invalid_conflicts"] == []
+    assert not any(item["status"] == "NEW" for item in token["invalid_diagnostics"])
+    assert confirm(client, body, token).status_code == 200
+
+
+def test_tp023d_foreign_timezone_hidden_rule_has_actionable_source(runtime):
+    client, _ = runtime
+    effect = monday()
+    focus = client.post("/api/work-types", json={"name": "Focus"}).json()["id"]
+    rule(client, effect, weekdays=(1,), begins="08:00", ends="17:00")
+    foreign = _categorized_rule(client, effect, focus, zone="UTC",
+                                begins="13:00", ends="14:00")
+    grid = client.get(ROOT, params={
+        "effective_from": str(effect), "timezone_name": ZONE,
+    }).json()
+    assert not any(item["kind"] == "CATEGORIZED" for item in grid["sections"])
+    body = draft(client, effect, [slot("12:00", "17:00")])
+    token = preview(client, body)
+    matches = [item for item in token["invalid_diagnostics"]
+               if item["code"] == "OUTSIDE_GENERAL_ENVELOPE" and
+               item["status"] == "NEW" and item["work_type_id"] == focus]
+    assert matches
+    assert any("UTC" in item["source_timezones"] and
+               foreign["id"] in item["rule_ids"] and
+               item["timezone_name"] == ZONE for item in matches)
+    assert confirm(client, body, token).status_code == 400
