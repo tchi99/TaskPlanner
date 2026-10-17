@@ -164,3 +164,59 @@ def project_eligibility(
         tuple(fragments), tuple(issues), expansion, physical.declared_minutes,
         tuple(sorted(totals.items(), key=lambda item: str(item[0]))),
     )
+
+
+def booking_covered_by_eligibility(
+    booking, projection: EligibilityProjection, compatibility_id: UUID,
+) -> bool:
+    """True only when each UTC minute of a local booking has its own permission.
+
+    A historical preferred transfer is never reclassified as an admission.
+    It remains subject to the original exclusive availability rules.
+    """
+    if booking.transferred_from is not None or booking.work_type_id is None:
+        return False
+    cursor = booking.starts_at.astimezone(timezone.utc)
+    end = booking.ends_at.astimezone(timezone.utc)
+    scope_id = booking.scope_id or compatibility_id
+    for fragment in sorted(projection.fragments, key=lambda value: value.starts_at):
+        if fragment.ends_at <= cursor or fragment.starts_at > cursor:
+            continue
+        if fragment.scope_id != scope_id or not any(
+                choice.work_type_id == booking.work_type_id and not choice.exclusive
+                for choice in fragment.choices):
+            continue
+        cursor = min(end, fragment.ends_at)
+        if cursor >= end:
+            return True
+    return False
+
+
+def reconcile_booking_issues(
+    physical: EffectiveProjection, eligibility: EligibilityProjection,
+    confirmed, compatibility_id: UUID,
+) -> tuple[EffectiveProjection, EligibilityProjection]:
+    """Only clear legacy type-mismatch flags when the new admission covers ALL.
+
+    Preserve every other diagnostic, particularly unavailable physical time,
+    cross-parent conflicts, and historical protected booking inconsistencies.
+    """
+    from dataclasses import replace
+
+    bookings = {booking.id: booking for booking in confirmed}
+    accepted_ids = {
+        booking.id for booking in confirmed
+        if booking_covered_by_eligibility(booking, eligibility, compatibility_id)
+    }
+
+    def retain(issue: EffectiveIssue) -> bool:
+        return not (
+            issue.code == "BOOKING_OUTSIDE_EFFECTIVE_AVAILABILITY"
+            and issue.booking_id in accepted_ids
+            and issue.booking_id in bookings
+        )
+
+    return (
+        replace(physical, issues=tuple(issue for issue in physical.issues if retain(issue))),
+        replace(eligibility, issues=tuple(issue for issue in eligibility.issues if retain(issue))),
+    )
