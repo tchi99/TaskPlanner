@@ -53,15 +53,19 @@ def _covered(candidate: ConfirmedTimeBlock, projection, compatibility_id=None) -
     """Require the entire destination to be within compatible declarations."""
     cursor = _utc(candidate.starts_at)
     limit = _utc(candidate.ends_at)
-    spans = sorted((
-        b for b in projection.projection.blocks
-        if (candidate.scope_id is not None or compatibility_id is not None)
-        and b.scope_id == (candidate.scope_id or compatibility_id)
-        and (b.work_type_id == candidate.work_type_id
-             or (candidate.transferred_from is not None
-                 and b.work_type_id == candidate.transferred_from
-                 and b.mode is AvailabilityMode.PREFERRED))
-    ), key=lambda b: b.starts_at)
+    scope = candidate.scope_id or compatibility_id
+    legacy = [b for b in projection.projection.blocks
+              if scope is not None and b.scope_id == scope
+              and (b.work_type_id == candidate.work_type_id
+                   or (candidate.transferred_from is not None
+                       and b.work_type_id == candidate.transferred_from
+                       and b.mode is AvailabilityMode.PREFERRED))]
+    shared = [fragment for fragment in projection.eligibility.fragments
+              if scope is not None and fragment.scope_id == scope
+              and any(choice.work_type_id == candidate.work_type_id
+                      and not choice.exclusive for choice in fragment.choices)
+              and candidate.transferred_from is None]
+    spans = sorted((*legacy, *shared), key=lambda b: b.starts_at)
     for span in spans:
         start, end = _utc(span.starts_at), _utc(span.ends_at)
         if start <= cursor < end:
