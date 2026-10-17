@@ -44,8 +44,7 @@ def test_repository_cas_revisions_and_exception_audit():
         assert [r.priority_rank for r in repo.get(sid, owner).revisions] == [
             None, 1]
         with pytest.raises(EligibilityConflict):
-            repo.append_revision(owner, replace(next_rev, number=3),
-                                 expected_version=2 - 1)
+            repo.append_revision(owner, next_rev, expected_version=1)
         exc_id = uuid4()
         exception = EligibilityException(
             exc_id, owner, sid, date(2027, 1, 12), 1,
@@ -60,7 +59,7 @@ def test_repository_cas_revisions_and_exception_audit():
         assert repo.get_exception(exc_id, owner) == changed
         assert repo.get_exception(exc_id, "stranger") is None
         with pytest.raises(EligibilityConflict):
-            repo.append_exception(replace(changed, version=3), expected_version=1)
+            repo.append_exception(changed, expected_version=1)
         assert session.scalar(select(func.count()).select_from(
             EligibilityRevisionRecord)) == 2
         assert session.scalar(select(func.count()).select_from(
