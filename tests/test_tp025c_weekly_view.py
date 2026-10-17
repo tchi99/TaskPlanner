@@ -1,6 +1,6 @@
 """TP-025C: visual reads never duplicate minutes or invent Google verification."""
 from datetime import date, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -88,7 +88,7 @@ def add_shared(client, factory, count=3):
                 series_id, 1, WEEK, None, ZONE, (1,), "10:00", "11:00",
                 priority_rank=index + 1)
             uow.eligibility.add(EligibilitySeries(
-                series_id, OWNER, scope, __import__("uuid").UUID(work_type), 1, (rev,)))
+                series_id, OWNER, scope, UUID(work_type), 1, (rev,)))
             uow.commit()
     return types
 
@@ -128,9 +128,15 @@ def test_local_booking_and_google_busy_union_without_false_free(runtime):
     client, reader, factory = runtime
     ids = add_shared(client, factory, count=2)
     day = date(2027, 1, 5)
+    created = client.post("/api/tasks", json={"title": "Existing booking", "estimated_minutes": 30})
+    assert created.status_code == 201, created.text
+    task_id = created.json()["id"]
+    clarified = client.post("/api/tasks/" + task_id + "/clarify",
+                            json={"work_type_id": ids[0]})
+    assert clarified.status_code == 200, clarified.text
     with SqlAlchemyUnitOfWork(factory) as uow:
         uow.time_blocks.add(ConfirmedTimeBlock(
-            week_start=WEEK, task_id=uuid4(), segment_id=None,
+            week_start=WEEK, task_id=UUID(task_id), segment_id=None,
             work_type_id=__import__("uuid").UUID(ids[0]),
             starts_at=civil(day, 10), ends_at=civil(day, 10, 30),
             scope_id=compatibility_scope_id(OWNER)))
