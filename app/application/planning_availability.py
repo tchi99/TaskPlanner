@@ -16,6 +16,7 @@ from app.application.effective_availability import _state
 from app.application.uow import UnitOfWork
 from app.domain.capacity import AvailabilityBlock, validate_week_start
 from app.domain.effective_availability import EffectiveProjection, project_effective
+from app.domain.eligibility_projection import EligibilityProjection, project_eligibility
 from app.domain.recurring_availability import AvailabilityMode
 from app.domain.schedule_scopes import compatibility_scope_id
 
@@ -23,6 +24,7 @@ from app.domain.schedule_scopes import compatibility_scope_id
 @dataclass(frozen=True, slots=True)
 class PlanningAvailability:
     projection: EffectiveProjection
+    eligibility: EligibilityProjection
     blocks: tuple[AvailabilityBlock, ...]
     preferred_blocks: tuple[AvailabilityBlock, ...]
     revision_fingerprint: str
@@ -54,12 +56,23 @@ def effective_week(
         )
         for item in projection.blocks
     )
+    series = tuple(uow.eligibility.list_owner(owner_id))
+    permission_exceptions = tuple(uow.eligibility.list_exceptions(owner_id))
+    eligibility = project_eligibility(
+        projection, series, permission_exceptions, week_start, until,
+        timezone_name, compatibility_id=compatibility_scope_id(owner_id),
+        affiliations=uow.schedule_scopes.affiliations(owner_id),
+    )
     preferred_ids = {
         uuid5(NAMESPACE_URL, "taskplanner:effective:" + item.id)
         for item in projection.blocks if item.mode is AvailabilityMode.PREFERRED
     }
     snapshot = {
-        "algorithm": "TP-024A/v1",
+        "algorithm": "TP-025B/physical-eligibility-v1",
+        "eligibility_series": [asdict(v) for v in series],
+        "eligibility_exceptions": [asdict(v) for v in permission_exceptions],
+        "eligibility_fragments": [asdict(v) for v in eligibility.fragments],
+        "eligibility_issues": [asdict(v) for v in eligibility.issues],
         "scope_versions": uow.schedule_scopes.versions(owner_id),
         "affiliations": [asdict(v) for v in uow.schedule_scopes.affiliations(owner_id)],
         "scopes": [asdict(v) for v in uow.schedule_scopes.list_owner(owner_id)],
@@ -76,6 +89,6 @@ def effective_week(
         snapshot, default=str, sort_keys=True, ensure_ascii=True,
     ).encode()).hexdigest()
     return PlanningAvailability(
-        projection, blocks, tuple(v for v in blocks if v.id in preferred_ids),
-        fingerprint,
+        projection, eligibility, blocks,
+        tuple(v for v in blocks if v.id in preferred_ids), fingerprint,
     )
