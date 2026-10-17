@@ -22,7 +22,6 @@ from app.domain.eligibility import (
 from app.domain.eligibility_projection import project_eligibility, reconcile_booking_issues
 from app.domain.recurring_availability import (
     AvailabilityMode, RecurringAvailabilityRule, RuleConflict, RuleKind,
-    _wall_clock,
 )
 from app.domain.schedule_scopes import compatibility_scope_id, effective_scope
 
