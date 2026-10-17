@@ -126,7 +126,9 @@ def _validate(uow: UnitOfWork, owner: str, draft: EligibilityDraft):
         if not active or any(r.supersedes_future for r in active):
             raise ValueError("legacy series is inactive at cutover")
         rev = max(active, key=lambda r: (r.effective_from, r.number))
-        if (rev.kind is not RuleKind.CATEGORIZED
+        if (not rev.enabled
+                or (rev.valid_until is not None and draft.effective_from >= rev.valid_until)
+                or rev.kind is not RuleKind.CATEGORIZED
                 or rev.mode is not AvailabilityMode.PREFERRED
                 or rev.work_type_id != draft.work_type_id
                 or (rev.scope_id or compatibility_scope_id(owner)) != draft.scope_id):
