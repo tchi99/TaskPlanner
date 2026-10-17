@@ -157,7 +157,7 @@ def test_dst_missing_and_ambiguous_instants_never_invent_capacity():
     assert not occurrences and issues[0].code == "AMBIGUOUS_LOCAL_TIME"
     rev = replace(autumn.revisions[0], start_fold=1)
     found, issues = expand_eligibility(
-        (replace(autumn, revisions=(rev,)), ()),
+        (replace(autumn, revisions=(rev,)),),
         (), date(2027, 11, 7), date(2027, 11, 8))
     assert len(found) == 1 and not issues
     assert found[0].ends_at - found[0].starts_at == timedelta(hours=1)
