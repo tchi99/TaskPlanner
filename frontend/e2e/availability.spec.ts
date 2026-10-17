@@ -135,7 +135,10 @@ async function mockApi(page: Page) {
         const next = new Date(d);
         next.setUTCDate(next.getUTCDate() + 1);
         return { local_date: d.toISOString().slice(0, 10), weekday: index,
-          starts_at: d.toISOString(), ends_at: next.toISOString(), minutes: 1440 };
+          starts_at: d.toISOString(), ends_at: next.toISOString(), minutes: 1440,
+          ticks: [0, 360, 720, 1080, 1440].map((minute) => ({
+            minute, label: minute === 1440 ? "Fin" : String(minute / 60).padStart(2, "0") + ":00",
+          })) };
       });
       const day = days[1];
       const startAt = day.local_date + "T10:00:00Z";
