@@ -416,7 +416,7 @@ export function App() {
                       aria-pressed={planningView === "capacity"} onClick={() => setPlanningView("capacity")}>Capacité et propositions</button>
                   </div>
                   {planningView === "availability"
-                    ? <AvailabilityPlanner workTypes={workTypes} onWorkTypesChanged={reload} />
+                    ? <AvailabilityPlanner workTypes={workTypes} tasks={tasks} onWorkTypesChanged={reload} />
                     : <WeeklyCapacity tasks={tasks} workTypes={workTypes} />}
                 </div>
               )}
