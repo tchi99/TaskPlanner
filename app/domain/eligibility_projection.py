@@ -100,9 +100,13 @@ def project_eligibility(
                     scope_ids=tuple(sorted({item.scope_id for item in touching}, key=str))))
             continue
         selections: list[EligibilityChoice] = []
-        if base.work_type_id is not None:
-            selections.append(EligibilityChoice(
-                base.work_type_id, None, base.sources, True, base.mode))
+        # A manual declaration is strict even when its work_type_id is NULL.
+        # It cannot silently become a shared eligibility envelope.
+        manual_strict = any(source.startswith("MANUAL:") for source in base.sources)
+        if base.work_type_id is not None or manual_strict:
+            if base.work_type_id is not None:
+                selections.append(EligibilityChoice(
+                    base.work_type_id, None, base.sources, True, base.mode))
             if touching:
                 issues.append(EffectiveIssue(
                     "ELIGIBILITY_OVER_LEGACY_EXCLUSIVE", start, end,
@@ -140,7 +144,7 @@ def project_eligibility(
             totals[choice.work_type_id] = totals.get(choice.work_type_id, 0) + minutes
         fragments.append(PhysicalEligibilityFragment(
             start, end, base.scope_id, base.sources, choices,
-            base.work_type_id is None and not choices))
+            base.work_type_id is None and not manual_strict and not choices))
     # A fragment is a physical minute once, even when it carries N choices.
     assert sum(item.minutes for item in fragments) == physical.declared_minutes
     return EligibilityProjection(
