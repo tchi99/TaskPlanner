@@ -7,7 +7,7 @@ must never be presented as Google-verified free time.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -77,7 +77,19 @@ def project_eligibility(
     occurrences, expansion = expand_eligibility(series, exceptions, from_date, to_date)
     occurrences = tuple(item for item in occurrences
                         if item.starts_at < hi and item.ends_at > lo)
-    boundaries = sorted({lo, hi} |
+    # Dated leaf affiliations can change at a local midnight within a
+    # permission or a moved occurrence. Split there before checking scope.
+    local_midnights = set()
+    for item in occurrences:
+        local_zone = ZoneInfo(item.timezone_name)
+        day = item.starts_at.astimezone(local_zone).date()
+        last = item.ends_at.astimezone(local_zone).date()
+        while day <= last:
+            instant = datetime.combine(day, time.min, local_zone).astimezone(timezone.utc)
+            if lo < instant < hi:
+                local_midnights.add(instant)
+            day += timedelta(days=1)
+    boundaries = sorted({lo, hi} | local_midnights |
                         {edge for block in physical.blocks
                          for edge in (block.starts_at, block.ends_at)} |
                         {max(lo, item.starts_at) for item in occurrences} |
@@ -120,7 +132,8 @@ def project_eligibility(
                         "ELIGIBILITY_SCOPE_MISMATCH", start, end, (item.source,),
                         scope_ids=tuple(v for v in (base.scope_id, item.scope_id) if v)))
                     continue
-                if effective_scope(item.work_type_id, item.original_local_date,
+                if effective_scope(item.work_type_id,
+                                   start.astimezone(ZoneInfo(item.timezone_name)).date(),
                                    affiliations, compatibility_id) != item.scope_id:
                     issues.append(EffectiveIssue(
                         "ELIGIBILITY_AFFILIATION_MISMATCH", start, end, (item.source,),
