@@ -72,8 +72,6 @@ def suggest_eligible_blocks(
     high = _minute(datetime.combine(week_end, time.min, zone))
     if not candidates or len({v.task.id for v in candidates}) != len(candidates):
         raise ValueError("candidate tasks must be nonempty and unique")
-    if any(v.week_start != week_start for v in confirmed):
-        raise ValueError("confirmed booking belongs to another week")
     # Every key is ONE physical minute. A shared permission adds choices, not keys.
     eligible: dict[int, tuple[UUID | None, tuple]] = {}
     # Unclassified NULL capacity is not a cross-parent commons: only an
@@ -99,7 +97,7 @@ def suggest_eligible_blocks(
     occupied = {m for a, b in busy_ranges
                 for m in range(max(low, a), min(high, b))}
     free = set(eligible) - occupied
-    already = {v.task_id for v in confirmed}
+    already = {v.task_id for v in confirmed if v.week_start == week_start}
     units = []
     snapshot_tasks = []
     for order, aggregate in enumerate(candidates):
