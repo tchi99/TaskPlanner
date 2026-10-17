@@ -76,6 +76,7 @@ class WorkTypeCapacity:
     remaining_minutes: int
     status: CapacityStatus
     scope_id: UUID | None = None
+    alternative_potential: bool = False
 
 
 @dataclass(frozen=True, slots=True)
