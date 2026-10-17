@@ -15,7 +15,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from app.domain.calendar import CalendarCommitment
-from app.domain.eligibility_projection import EligibilityProjection
+from app.domain.eligibility_projection import EligibilityChoice, EligibilityProjection
 from app.domain.model import ProtectionLevel, SegmentStatus, TaskStatus
 from app.domain.recurring_availability import AvailabilityMode
 from app.domain.task_rules import TaskAggregate
@@ -76,6 +76,9 @@ def suggest_eligible_blocks(
         raise ValueError("confirmed booking belongs to another week")
     # Every key is ONE physical minute. A shared permission adds choices, not keys.
     eligible: dict[int, tuple[UUID | None, tuple]] = {}
+    # Unclassified NULL capacity is not a cross-parent commons: only an
+    # unambiguous one-parent week can admit an unclassified work unit.
+    scopes = {fragment.scope_id for fragment in projection.fragments}
     for fragment in projection.fragments:
         for minute in range(max(low, _minute(fragment.starts_at)),
                             min(high, _minute(fragment.ends_at))):
@@ -83,6 +86,10 @@ def suggest_eligible_blocks(
                 raise ValueError("physical projection overlaps itself")
             if fragment.choices:
                 eligible[minute] = (fragment.scope_id, fragment.choices)
+            elif fragment.null_residual and len(scopes) == 1:
+                eligible[minute] = (fragment.scope_id, (
+                    EligibilityChoice(None, None, fragment.sources, exclusive=True),
+                ))
     busy_ranges = [
         (floor(v.starts_at.astimezone(timezone.utc).timestamp() / 60),
          ceil(v.ends_at.astimezone(timezone.utc).timestamp() / 60))
