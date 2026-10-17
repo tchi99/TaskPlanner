@@ -496,7 +496,9 @@ def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
                                   compatibility_id=compatibility_scope_id(owner),
                                   affiliations=uow.schedule_scopes.affiliations(owner))
         new_p = project_effective(future_rules, proposed_exceptions, relevant_manual,
-                                  (booking,), local, stop, draft.timezone_name)
+                                  (booking,), local, stop, draft.timezone_name,
+                                  compatibility_id=compatibility_scope_id(owner),
+                                  affiliations=uow.schedule_scopes.affiliations(owner))
         was = any(i.booking_id == booking.id for i in old_p.issues)
         now = any(i.booking_id == booking.id for i in new_p.issues)
         if now:
