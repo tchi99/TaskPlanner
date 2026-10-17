@@ -74,7 +74,8 @@ def test_secure_connection_policy_and_fresh_schema(postgres_engine):
             "recurring_availability_rules", "recurring_availability_revisions",
             "availability_exceptions", "schedule_scopes",
             "work_type_scope_assignments", "scope_change_commands",
-            "scope_change_audit"} <= set(
+            "scope_change_audit", "eligibility_series", "eligibility_revisions",
+            "eligibility_exceptions", "eligibility_exception_revisions"} <= set(
                 inspect(postgres_engine).get_table_names(schema="taskplanner")
             )
     assert "tasks" not in inspect(postgres_engine).get_table_names(schema="public")
