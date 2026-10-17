@@ -138,8 +138,7 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
   }
   function showFragment(item: Fragment, choice: Choice) {
     setEditorTarget(null);
-    const series = choice.exclusive ? [] : choice.source_details.filter(
-      (source) => source.source.startsWith("ELIGIBILITY:"));
+    const series = choice.exclusive ? [] : choice.source_details;
     const legacy = choice.exclusive ? choice.sources
       .filter((value) => value.startsWith("RULE:"))
       .map((value) => value.split(":")[1]).filter((id, index, values) => values.indexOf(id) === index) : [];
