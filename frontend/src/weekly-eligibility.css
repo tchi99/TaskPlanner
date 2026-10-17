@@ -1,0 +1,61 @@
+.eligibilityChart { display: grid; gap: 13px; min-width: 0; }
+.eligControls { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; }
+.eligControls label, .eligProposal label { display: grid; gap: 5px; font-weight: 600; color: var(--tp-text, #18283d); }
+.eligControls label:has(input[type="checkbox"]) { display: flex; flex-direction: row; align-items: center; gap: 7px; padding-bottom: 8px; }
+.eligControls select, .eligProposal select { max-width: 100%; min-width: 165px; }
+.eligTabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.workspaceFrame .eligTabs button { border: 1px solid #94a3b8; background: #fff; color: #172d43; padding: 8px 14px; border-radius: 9px; }
+.workspaceFrame .eligTabs button[aria-pressed="true"] { background: #173d5c; color: white; }
+.eligSummary { margin: 0; line-height: 1.6; }
+.eligWarning { border-left: 4px solid #b45309; padding: 8px 12px; background: #fff7ed; color: #7c2d12; }
+.eligLegend { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.eligLegend span { display: inline-flex; align-items: center; gap: 7px; font-size: .86rem; }
+.eligLegend i { display: inline-block; width: 15px; height: 15px; border: 2px solid currentColor; background: var(--elig-bg); border-radius: 3px; }
+.eligScroll { width: 100%; overflow-x: auto; border: 1px solid #c6d6e2; border-radius: 9px; background: #fff; }
+.eligScroll:focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
+.eligPlot { min-width: 880px; padding: 12px 13px 16px; }
+.eligRuler { display: grid; grid-template-columns: 116px repeat(5, 1fr); font-size: .76rem; color: #435469; margin-bottom: 6px; }
+.eligRuler span:not(:first-child) { text-align: center; }
+.eligDay { display: grid; grid-template-columns: 116px minmax(0, 1fr); gap: 9px; align-items: stretch; margin: 6px 0; }
+.eligDayName { display: flex; flex-direction: column; justify-content: center; font-size: .83rem; }
+.eligDayName small { color: #485971; margin-top: 3px; }
+.eligTrack { position: relative; overflow: hidden; border: 1px solid #bacbd9; border-radius: 5px;
+  background-image: linear-gradient(to right, transparent calc(25% - 1px), #dfebf2 25%, transparent calc(25% + 1px)),
+    linear-gradient(to right, transparent calc(50% - 1px), #dfebf2 50%, transparent calc(50% + 1px)),
+    linear-gradient(to right, transparent calc(75% - 1px), #dfebf2 75%, transparent calc(75% + 1px));
+  background-color: #f7fafc; }
+.eligEnvelope { position: absolute; height: 100%; background: #e3edf5; border-inline: 1px solid #b6c4d4; }
+.workspaceFrame button.eligBar { position: absolute; height: 29px; line-height: 1.15; z-index: 1;
+  padding: 3px 5px; min-width: 1px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  text-align: left; background: var(--elig-bg); color: var(--elig-fg); border: 2px solid var(--elig-line);
+  border-radius: 4px; font-size: .75rem; font-weight: 700; }
+.workspaceFrame button.eligBar.eligPriority { border-style: dashed; border-width: 3px; }
+.workspaceFrame button.eligBar:hover { filter: brightness(.93); }
+.workspaceFrame button.eligBar:focus-visible { outline: 3px solid #111827; outline-offset: 1px; z-index: 3; }
+.eligColor0 { --elig-bg: #c5e8f5; --elig-fg: #083b56; --elig-line: #176384; }
+.eligColor1 { --elig-bg: #fbdcbd; --elig-fg: #6c3508; --elig-line: #b55a0c; }
+.eligColor2 { --elig-bg: #e0d4ff; --elig-fg: #43247f; --elig-line: #7047aa; }
+.eligColor3 { --elig-bg: #c9f1d3; --elig-fg: #15532b; --elig-line: #2b8250; }
+.eligColor4 { --elig-bg: #ffe1eb; --elig-fg: #752045; --elig-line: #a83d6c; }
+.eligColor5 { --elig-bg: #f3e5a9; --elig-fg: #615010; --elig-line: #927614; }
+.workspaceFrame button.eligBar.eligGoogle { --elig-bg: #f4c5c5; --elig-fg: #6f1111; --elig-line: #9e2525; }
+.workspaceFrame button.eligBar.eligLocal { --elig-bg: #bacbdc; --elig-fg: #172c45; --elig-line: #334d6a; }
+.workspaceFrame button.eligBar.eligProposed { border-style: dotted; }
+.eligDetail, .eligDiagnostics { border: 1px solid #afc1d0; border-radius: 8px; padding: 12px; background: #f8fbfe; }
+.eligDetail h4, .eligDiagnostics h4 { margin: 0 0 6px; }
+.eligDetail ul, .eligDiagnostics ul { padding-left: 20px; overflow-wrap: anywhere; }
+.eligProposal { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; padding: 10px; border: 1px solid #c3d4df; border-radius: 8px; }
+.eligProposal p { flex-basis: 100%; margin: 2px 0; }
+.eligTable summary { cursor: pointer; font-weight: 600; }
+.eligTableScroll { overflow-x: auto; margin-top: 10px; }
+.eligTable table { width: 100%; border-collapse: collapse; font-size: .83rem; }
+.eligTable th, .eligTable td { padding: 7px; border-bottom: 1px solid #cbd5e1; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .eligPlot { min-width: 760px; }
+  .eligControls > label { width: 100%; }
+  .eligControls select { width: 100%; }
+  .eligTable table { min-width: 580px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eligibilityChart *, .eligibilityChart *::before, .eligibilityChart *::after { transition: none !important; }
+}
