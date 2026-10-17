@@ -9,6 +9,7 @@ from app.server.weekly_schedule import router as weekly_schedule_router
 from app.server.schedule_scopes import router as schedule_scopes_router
 from app.server.effective_availability import router as effective_availability_router
 from app.server.weekly_eligibility import router as weekly_eligibility_router
+from app.server.eligibility_edits import router as eligibility_edits_router
 from app.server.calendar import router as calendar_router
 from app.server.time_blocks import router as time_blocks_router
 from app.server.booking_resolutions import router as booking_resolutions_router
@@ -78,6 +79,7 @@ app.include_router(weekly_schedule_router)
 app.include_router(schedule_scopes_router)
 app.include_router(effective_availability_router)
 app.include_router(weekly_eligibility_router)
+app.include_router(eligibility_edits_router)
 app.include_router(calendar_router)
 app.include_router(time_blocks_router)
 app.include_router(booking_resolutions_router)
