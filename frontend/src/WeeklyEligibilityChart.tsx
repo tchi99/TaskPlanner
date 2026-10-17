@@ -28,7 +28,8 @@ type Occupation = CivilPart & {
   kind: "LOCAL_CONFIRMED" | "GOOGLE_VERIFIED"; source: string;
   task_id?: string; booking_id?: string; work_type_id?: string | null; title?: string;
 };
-type DayLayout = { local_date: string; weekday: number; starts_at: string; ends_at: string; minutes: number };
+type DayLayout = { local_date: string; weekday: number; starts_at: string; ends_at: string; minutes: number;
+  ticks: { label: string; minute: number }[] };
 type Issue = {
   code: string; starts_at: string; ends_at: string; sources: string[];
   booking_id: string | null; state: string; scope_ids: string[];
@@ -138,6 +139,9 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
           "Rang contextuel : " + choice.priority_rank,
         choice.exclusive ? "Affectation exclusive historique · " + (choice.legacy_mode || "stricte") :
           "Admissibilité partagée : aucun temps réservé",
+        "Autres activités simultanément admissibles : " +
+          (item.choices.filter((other) => other.work_type_id !== choice.work_type_id)
+            .map((other) => label(other.work_type_id)).join(", ") || "aucune"),
         ...choice.source_details.map((v) => "Série " + v.series_id + " · révision " +
           v.revision + " · effet " + v.effective_from + " · " + v.timezone_name),
         "Provenances : " + choice.sources.join(" ; "),
@@ -245,9 +249,6 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
       </div>}
       <div className="eligScroll" role="region" aria-label="Grille graphique des jours" tabIndex={0}>
         <div className="eligPlot">
-          <div className="eligRuler" aria-hidden="true"><span />
-            {["Début", "6 h", "12 h", "18 h", "Fin"].map((hour) =>
-              <span key={hour}>{hour}</span>)}</div>
           {snapshot.days.map((day) => {
             const pieces = snapshot.fragments.filter((item) => item.weekday === day.weekday);
             const options = pieces.flatMap((item) => item.choices.filter((choice) =>
@@ -267,7 +268,13 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
             return <div className="eligDay" key={day.weekday}>
               <div className="eligDayName"><strong>{weekdays[day.weekday]}</strong>
                 <small>{day.local_date} · {day.minutes / 60} h</small></div>
-              <div className="eligTrack" style={{ height }}>
+              <div className="eligTrackWrap">
+                <div className="eligLocalRuler" aria-hidden="true">
+                  {day.ticks.map((tick, index) => <span key={index} className={index === 0 ? "first" :
+                    index === day.ticks.length - 1 ? "last" : ""}
+                    style={{ left: 100 * tick.minute / day.minutes + "%" }}>{tick.label}</span>)}
+                </div>
+                <div className="eligTrack" style={{ height }}>
                 {pieces.map((item, index) => <span key={"physical-" + index}
                   className="eligEnvelope" aria-hidden="true" style={{
                     ...geometry(item.start_minute, item.end_minute, day.minutes),
@@ -312,6 +319,7 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
                         "Aperçu seulement : non réservé"],
                     })} aria-label={"Placement proposé " + item.label}>{item.label}</button>;
                 })}
+                </div>
               </div>
             </div>;
           })}
