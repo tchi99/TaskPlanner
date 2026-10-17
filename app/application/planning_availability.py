@@ -16,7 +16,8 @@ from app.application.effective_availability import _state
 from app.application.uow import UnitOfWork
 from app.domain.capacity import AvailabilityBlock, validate_week_start
 from app.domain.effective_availability import EffectiveProjection, project_effective
-from app.domain.eligibility_projection import EligibilityProjection, project_eligibility
+from app.domain.eligibility_projection import (EligibilityProjection, project_eligibility,
+                                               reconcile_booking_issues)
 from app.domain.recurring_availability import AvailabilityMode
 from app.domain.schedule_scopes import compatibility_scope_id
 
@@ -63,6 +64,8 @@ def effective_week(
         timezone_name, compatibility_id=compatibility_scope_id(owner_id),
         affiliations=uow.schedule_scopes.affiliations(owner_id),
     )
+    projection, eligibility = reconcile_booking_issues(
+        projection, eligibility, confirmed, compatibility_scope_id(owner_id))
     preferred_ids = {
         uuid5(NAMESPACE_URL, "taskplanner:effective:" + item.id)
         for item in projection.blocks if item.mode is AvailabilityMode.PREFERRED
