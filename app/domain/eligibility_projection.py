@@ -22,7 +22,7 @@ from app.domain.schedule_scopes import ScopeAffiliation, effective_scope
 
 @dataclass(frozen=True, slots=True)
 class EligibilityChoice:
-    work_type_id: UUID
+    work_type_id: UUID | None
     priority_rank: int | None
     sources: tuple[str, ...]
     exclusive: bool = False
