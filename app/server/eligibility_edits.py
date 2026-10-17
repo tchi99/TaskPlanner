@@ -38,7 +38,7 @@ class DraftInput(BaseModel):
     end_fold: int | None = Field(default=None, ge=0, le=1)
 
     def domain(self) -> EligibilityDraft:
-        return EligibilityDraft(**self.model_dump())
+        return EligibilityDraft(**{name: getattr(self, name) for name in DraftInput.model_fields})
 
 
 class Confirmation(DraftInput):
