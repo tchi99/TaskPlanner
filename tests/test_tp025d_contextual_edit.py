@@ -5,13 +5,14 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.domain.schedule_scopes import compatibility_scope_id
 from app.domain.time_blocks import ConfirmedTimeBlock
 from app.infrastructure import models  # noqa: F401
+from app.infrastructure.models import HistoryEventRecord
 from app.infrastructure.db import Base
 from app.infrastructure.uow import SqlAlchemyUnitOfWork, get_uow
 from app.main import app
@@ -130,7 +131,7 @@ def test_stale_priority_only_edit_and_owned_revision(runtime):
 
 
 def test_opt_in_from_preferred_preserves_legacy_and_rejects_protected(runtime):
-    client, _ = runtime
+    client, factory = runtime
     focus, meeting = setup(client)
     legacy = client.post("/api/availability/rules", json={
         "effective_from": "2027-01-04", "timezone_name": ZONE,
@@ -142,7 +143,17 @@ def test_opt_in_from_preferred_preserves_legacy_and_rejects_protected(runtime):
                      expected_legacy_version=legacy["version"])
     outcome = preview(client, proposed)
     assert not outcome["blocking_issues"], outcome
-    assert confirm(client, proposed, outcome).status_code == 200
+    accepted = confirm(client, proposed, outcome)
+    assert accepted.status_code == 200, accepted.text
+    with factory() as session:
+        audit = session.execute(select(
+            HistoryEventRecord.entity_type, HistoryEventRecord.entity_id,
+        ).where(HistoryEventRecord.correlation_id == accepted.json()["correlation_id"])
+          .order_by(HistoryEventRecord.sequence)).all()
+    assert [tuple(row) for row in audit] == [
+        ("AVAILABILITY_RULE", legacy["id"]),
+        ("ELIGIBILITY_SERIES", accepted.json()["series_id"]),
+    ]
     after = client.get("/api/availability/rules/" + legacy["id"]).json()
     assert after["version"] == 2 and after["revisions"][0]["mode"] == "PREFERRED"
     assert after["revisions"][-1]["supersedes_future"] is True

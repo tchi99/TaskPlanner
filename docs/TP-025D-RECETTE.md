@@ -74,3 +74,8 @@ ni de conversion automatique du passé. Un changement d'heure/rang peut
 nécessiter des séries supplémentaires; il n'y a pas d'édition gestuelle V1.
 Google reste une lecture distincte; même un aperçu fondé sur une lecture
 vérifiée ne garantirait pas l'état futur de Google.
+
+
+### Correctif CI — audit d'édition contextuelle
+
+Une migration additive `0019_tp025d` étend la contrainte `ck_history_events_entity_type` à `ELIGIBILITY_SERIES` sans supprimer les valeurs historiques ni modifier les réservations. L'événement de coupure d'une règle `PREFERRED` conserve le type d'entité `AVAILABILITY_RULE`, celui de la nouvelle permission utilise `ELIGIBILITY_SERIES`, tous deux sous le même identifiant de corrélation. Vérifier en recette une base SQLite migrée avec audit existant, le refus des types inconnus, ainsi que la garde de downgrade lorsque des audits d'admissibilité sont présents. La modification de contrainte suit le chemin Alembic SQLite/PostgreSQL déjà établi, sans écriture Google Calendar.

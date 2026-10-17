@@ -64,10 +64,11 @@ def _digest(value: object) -> str:
                              separators=(",", ":")).encode()).hexdigest()
 
 
-def _event(identifier: UUID, correlation: UUID, action: str, detail: dict) -> HistoryEvent:
+def _event(identifier: UUID, correlation: UUID, action: str, detail: dict, *,
+           entity_type: str = "ELIGIBILITY_SERIES") -> HistoryEvent:
     now = datetime.now(ZoneInfo("UTC"))
     return HistoryEvent(
-        id=uuid4(), occurred_at=now, recorded_at=now, entity_type="ELIGIBILITY_SERIES",
+        id=uuid4(), occurred_at=now, recorded_at=now, entity_type=entity_type,
         entity_id=identifier, task_id=None, event_type=action, schema_version=1,
         source=HistorySource.USER, reason_code=None, correlation_id=correlation,
         causation_id=None, payload=detail,
@@ -285,7 +286,7 @@ def confirm_edit(uow: UnitOfWork, owner: str, draft: EligibilityDraft, *,
                 terminal, expected_version=legacy.version)
             uow.history.append(_event(legacy.id, correlation, "AVAILABILITY_RULE_CHANGED",
                 {"operation": "EXPLICIT_SHARED_CUTOVER", "effective_from": str(draft.effective_from),
-                 "preserved_legacy_mode": "PREFERRED"}))
+                 "preserved_legacy_mode": "PREFERRED"}, entity_type="AVAILABILITY_RULE"))
         if existing is None:
             uow.eligibility.add(edited)
         else:
