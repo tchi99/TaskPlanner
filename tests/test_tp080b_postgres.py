@@ -428,3 +428,39 @@ def test_tp024a_postgres_parent_owner_history_and_version_cas(postgres_engine):
         assert unit.schedule_scopes.affiliations(foreign_owner) == ()
     with pytest.raises(RuleConflict):
         preview_affiliation(SqlAlchemyUnitOfWork(factory), owner, draft)
+
+
+
+def test_tp025a_eligibility_storage_in_postgresql(postgres_engine):
+    """New opt-in series and CAS revisions work in the private PG schema."""
+    from app.domain.eligibility import (
+        EligibilityConflict, EligibilityRevision, EligibilitySeries,
+    )
+    from app.infrastructure.eligibility_repository import SqlEligibilityRepository
+    from app.infrastructure.models import ScheduleScopeRecord, WorkTypeRecord
+
+    scope, work_type, series_id = uuid4(), uuid4(), uuid4()
+    with Session(postgres_engine) as session:
+        session.add(WorkTypeRecord(
+            id=str(work_type), name="TP-025A Focus", description=None))
+        session.add(ScheduleScopeRecord(
+            id=str(scope), owner_id="tp025a-owner", name="Travail",
+            version=1, state="ACTIVE", is_compatibility=False))
+        session.flush()
+        repository = SqlEligibilityRepository(session)
+        initial = EligibilityRevision(
+            series_id, 1, date(2027, 1, 4), None, "America/Toronto",
+            (1, 3), "09:00", "12:00",
+        )
+        repository.add(EligibilitySeries(
+            series_id, "tp025a-owner", scope, work_type, 1, (initial,)))
+        updated = EligibilityRevision(
+            series_id, 2, date(2027, 1, 11), None, "America/Toronto",
+            (1, 3), "09:00", "12:00", 1,
+        )
+        repository.append_revision("tp025a-owner", updated, expected_version=1)
+        assert repository.get(series_id, "tp025a-owner").version == 2
+        assert repository.get(series_id, "other-owner") is None
+        with pytest.raises(EligibilityConflict):
+            repository.append_revision("tp025a-owner", updated, expected_version=1)
+        session.commit()
