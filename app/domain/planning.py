@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
-from typing import Sequence
+from typing import Callable, Sequence
 from uuid import UUID
 
 from app.domain.capacity import (
@@ -63,13 +63,15 @@ def propose_plan(
     blocks: Sequence[AvailabilityBlock],
     candidates: Sequence[TaskAggregate],
     *, preferred_declared_minutes: int = 0,
+    capacity_evaluator: Callable[[Sequence[TaskAggregate]], WeeklyCapacityEvaluation] | None = None,
 ) -> PlanProposalPreview:
     """Offer scenarios without accepting a decision or modifying a schedule.
 
     DEFER excludes exactly one eligible *whole task* from a hypothetical
     week. Qualitative options never invent a capacity improvement.
     """
-    baseline = evaluate_week(week_start, blocks, candidates)
+    baseline = (capacity_evaluator(candidates) if capacity_evaluator
+                else evaluate_week(week_start, blocks, candidates))
     ordered = sorted(candidates, key=lambda a: (a.task.title.casefold(), str(a.task.id)))
     task_ids = tuple(a.task.id for a in ordered)
     previews: list[PlanOptionPreview] = []
@@ -104,7 +106,8 @@ def propose_plan(
         if protection is ProtectionLevel.PROTECTED:
             continue
         remaining = [a for a in ordered if a.task.id != aggregate.task.id]
-        simulated = evaluate_week(week_start, blocks, remaining)
+        simulated = (capacity_evaluator(remaining) if capacity_evaluator
+                     else evaluate_week(week_start, blocks, remaining))
         consequences = [
             "La tâche entière sort uniquement de la sélection hypothétique de cette semaine.",
             f"Capacité simulée : {simulated.status.value}; charge connue : "
