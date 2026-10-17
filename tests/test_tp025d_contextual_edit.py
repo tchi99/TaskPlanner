@@ -96,7 +96,8 @@ def test_shared_creation_and_replay_one_physical_interval(runtime):
         value = draft(typ, priority_rank=rank)
         projection = preview(client, value)
         assert projection["blocking_issues"] == []
-        assert projection["after_physical_minutes"] == 26 * 120 or projection["after_physical_minutes"] > 0
+        assert projection["after_physical_minutes"] == projection["before_physical_minutes"]
+        assert projection["after_physical_minutes"] > 0
         command_id = str(uuid4())
         result = confirm(client, value, projection, command_id)
         assert result.status_code == 200, result.text
@@ -155,9 +156,11 @@ def test_opt_in_from_preferred_preserves_legacy_and_rejects_protected(runtime):
 def test_booking_ack_and_future_booking_persistence(runtime):
     client, factory = runtime
     focus, _ = setup(client)
+    task = client.post("/api/tasks", json={"title": "Protected reservation", "estimated_minutes": 60})
+    assert task.status_code == 201, task.text
     with SqlAlchemyUnitOfWork(factory) as uow:
         booking = ConfirmedTimeBlock(
-            week_start=date(2027, 1, 4), task_id=uuid4(), segment_id=None,
+            week_start=date(2027, 1, 4), task_id=UUID(task.json()["id"]), segment_id=None,
             work_type_id=UUID(focus),
             starts_at=datetime(2027, 1, 5, 10, tzinfo=ZoneInfo(ZONE)),
             ends_at=datetime(2027, 1, 5, 11, tzinfo=ZoneInfo(ZONE)),
@@ -168,7 +171,7 @@ def test_booking_ack_and_future_booking_persistence(runtime):
     value = draft(focus)
     proposed = preview(client, value)
     assert proposed["booking_inventory"]
-    assert confirm(client, value, proposed).status_code == 400
+    assert confirm(client, value, proposed).status_code == 422
     accepted = confirm(client, value, proposed, acknowledge_bookings=True)
     assert accepted.status_code == 200, accepted.text
     with SqlAlchemyUnitOfWork(factory) as uow:
@@ -180,7 +183,7 @@ def test_past_edit_and_nonexistent_dst_are_rejected(runtime):
     client, _ = runtime
     focus, _ = setup(client)
     assert client.post(BASE + "/preview", json=draft(
-        focus, effective_from="2026-01-01")).status_code == 400
+        focus, effective_from="2026-01-01")).status_code == 422
     # In Toronto, 02:30 on the March spring-forward day does not exist.
     rule = draft(focus, effective_from="2027-03-13", days_of_week=[6],
                  starts_at_local="02:30", ends_at_local="03:30")
