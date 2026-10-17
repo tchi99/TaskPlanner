@@ -99,7 +99,10 @@ def test_remove_only_its_permission_and_restores_null_residual():
     alone = projection((legacy(scope),), (first,), (removed,))
     assert alone.physical_minutes == 480
     assert dict(alone.potential_minutes) == {}
-    assert any(f.null_residual and f.minutes == 120 for f in alone.fragments)
+    # REMOVE restores the entire unclaimed physical envelope to NULL. The
+    # timeline may coalesce adjacent residual minutes into a single fragment.
+    assert sum(f.minutes for f in alone.fragments if f.null_residual) == 480
+    assert all(not f.choices for f in alone.fragments)
 
 
 def test_conflicting_rank_same_type_is_diagnostic_not_uuid_tiebreak():
