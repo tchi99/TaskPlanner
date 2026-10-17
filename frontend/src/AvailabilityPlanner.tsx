@@ -2,9 +2,11 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { apiFetch } from "./auth";
 import "./availability.css";
 import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
+import { WeeklyEligibilityChart } from "./WeeklyEligibilityChart";
 import { ScheduleCategories, type ScopeCatalog } from "./ScheduleCategories";
 
 type WorkType = { id: string; name: string };
+type TaskChoice = { id: string; title: string; status: string; work_type_id: string | null };
 type Mode = "PROTECTED" | "PREFERRED";
 type Kind = "GENERAL" | "CATEGORIZED";
 type Action = "CANCEL" | "REPLACE" | "ADD" | "UNAVAILABLE";
@@ -113,10 +115,10 @@ function weekQuery(start: string, zone: string): string {
 }
 function shortId(id: string): string { return id.slice(0, 8); }
 
-export function AvailabilityPlanner({ workTypes, onWorkTypesChanged }: {
-  workTypes: WorkType[]; onWorkTypesChanged: () => Promise<void>;
+export function AvailabilityPlanner({ workTypes, tasks, onWorkTypesChanged }: {
+  workTypes: WorkType[]; tasks: TaskChoice[]; onWorkTypesChanged: () => Promise<void>;
 }) {
-  const [tab, setTab] = useState<"rules" | "real">("rules");
+  const [tab, setTab] = useState<"rules" | "real" | "grid">("rules");
   const [weeklyGridDirty, setWeeklyGridDirty] = useState(false);
   const [catalog, setCatalog] = useState<ScopeCatalog | null>(null);
   const [catalogError, setCatalogError] = useState("");
@@ -397,6 +399,11 @@ export function AvailabilityPlanner({ workTypes, onWorkTypesChanged }: {
               if (weeklyGridDirty && !window.confirm("Abandonner les changements non enregistrés de l'horaire habituel ?")) return;
               setTab("real");
             }}>Semaine réelle</button>
+          <button type="button" aria-pressed={tab === "grid"} className={tab === "grid" ? "selected" : ""}
+            onClick={() => {
+              if (weeklyGridDirty && !window.confirm("Abandonner les changements non enregistrés de l'horaire habituel ?")) return;
+              setTab("grid");
+            }}>Grille visuelle</button>
         </div>
       </div>
       <div className="availabilityToolbar">
@@ -422,7 +429,10 @@ export function AvailabilityPlanner({ workTypes, onWorkTypesChanged }: {
       </div>
       {error && <p role="alert" className="error">{error}</p>}
       {notice && <p role="status" className="availabilityNotice">{notice}</p>}
-      {loading ? <p role="status">Chargement des disponibilités…</p> : tab === "rules" ? (
+      {loading ? <p role="status">Chargement des disponibilités…</p> : tab === "grid" ? (
+        <WeeklyEligibilityChart week={week} zone={zone} scopeId={selectedScopeId || null}
+          catalog={catalog} workTypes={workTypes} tasks={tasks} onSelectScope={selectScope} />
+      ) : tab === "rules" ? (
         <div className="availabilityStack">
           {catalogError && <p role="alert" className="error">Catégories parentes indisponibles :
              {" "}{catalogError}. La grille de compatibilité reste consultable.</p>}
