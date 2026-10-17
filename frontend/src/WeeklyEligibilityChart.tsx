@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "./auth";
 import { EligibilityContextEditor } from "./EligibilityContextEditor";
-import type { ScopeCatalog } from "./ScheduleCategories";
+import { scopeForAt, type ScopeCatalog } from "./ScheduleCategories";
 import "./weekly-eligibility.css";
 
 type WorkType = { id: string; name: string };
@@ -151,7 +151,13 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
         workTypeId: choice.work_type_id!, seriesId: null,
         legacyRuleId: id, selectedDate: item.local_date })),
     ];
-    setEditTargets(targets);
+    const otherTypes = catalog ? workTypes.filter((type) =>
+      scopeForAt(type.id, item.local_date, catalog) === item.scope_id &&
+      !item.choices.some((other) => other.work_type_id === type.id)) : [];
+    setEditTargets([...targets, ...otherTypes.map((type) => ({
+      scopeId: item.scope_id, workTypeId: type.id,
+      seriesId: null, legacyRuleId: null, selectedDate: item.local_date,
+    }))]);
     setDetail({
       title: label(choice.work_type_id),
       dates: item.local_date + " · " + timeLabel(item.starts_at, zone) + " → " +
@@ -356,13 +362,14 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
           <button key={target.seriesId || target.legacyRuleId || index} type="button"
             onClick={() => setEditorTarget(target)}>
             {target.legacyRuleId ? "Convertir la règle historique " + target.legacyRuleId.slice(0, 8) :
-              "Modifier la permission " + target.seriesId?.slice(0, 8)}
+              target.seriesId ? "Modifier la permission " + target.seriesId.slice(0, 8) :
+              "Ajouter une permission : " + label(target.workTypeId)}
           </button>)}
         <button type="button" onClick={() => { setDetail(null); setEditTargets([]);
           setEditorTarget(null); }}>Fermer les détails</button>
       </section>}
       {editorTarget && <EligibilityContextEditor
-        key={editorTarget.seriesId || editorTarget.legacyRuleId || editorTarget.workTypeId}
+        key={(editorTarget.seriesId || editorTarget.legacyRuleId || editorTarget.workTypeId) + ":" + editorTarget.selectedDate}
         scopeId={editorTarget.scopeId} workTypeId={editorTarget.workTypeId}
         seriesId={editorTarget.seriesId} legacyRuleId={editorTarget.legacyRuleId}
         selectedDate={editorTarget.selectedDate} zone={zone}
