@@ -92,6 +92,11 @@ class WeeklyScheduleCommandRepository(Protocol):
     def add(self, owner_id: str, command_id: UUID, payload_hash: str, result: dict) -> None: ...
 
 
+class TimeBlockCommandRepository(Protocol):
+    def get(self, owner_id: str, command_id: UUID): ...
+    def add(self, owner_id: str, command_id: UUID, payload_hash: str, result: dict) -> None: ...
+
+
 class ConfirmedTimeBlockRepository(Protocol):
     def get(self, booking_id: UUID) -> ConfirmedTimeBlock | None: ...
     def revise(self, booking: ConfirmedTimeBlock, *, status: str) -> None: ...
@@ -135,6 +140,7 @@ class UnitOfWork(Protocol):
     availability_exceptions: AvailabilityExceptionRepository
     weekly_commands: WeeklyScheduleCommandRepository
     time_blocks: ConfirmedTimeBlockRepository
+    time_block_commands: TimeBlockCommandRepository
     daily_reviews: DailyReviewRepository
     weekly_reviews: WeeklyReviewRepository
     tasks: TaskRepository
