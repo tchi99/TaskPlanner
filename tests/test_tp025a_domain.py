@@ -177,3 +177,50 @@ def test_revisions_are_temporal_not_retroactive():
         replace(first.revisions[0], priority_rank=0)
     with pytest.raises(ValueError, match="93 days"):
         expand_eligibility((first,), (), START, START + timedelta(days=94))
+
+
+def test_new_admission_cannot_use_legacy_manual_null_block():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from app.domain.capacity import AvailabilityBlock
+
+    scope = compatibility_scope_id("owner")
+    zone = ZoneInfo("America/Toronto")
+    manual = AvailabilityBlock(
+        week_start=START,
+        starts_at=datetime(2027, 1, 5, 10, tzinfo=zone),
+        ends_at=datetime(2027, 1, 5, 12, tzinfo=zone),
+        work_type_id=None,
+    )
+    old = project_effective(
+        (), (), (manual,), (), START, START + timedelta(days=7),
+        "America/Toronto", compatibility_id=scope,
+    )
+    result = project_eligibility(
+        old, (series(scope, uuid4()),), (), START, START + timedelta(days=7),
+        "America/Toronto", compatibility_id=scope,
+    )
+    assert result.physical_minutes == 120
+    assert not result.potential_minutes
+    assert "ELIGIBILITY_OVER_LEGACY_EXCLUSIVE" in {v.code for v in result.issues}
+
+
+def test_move_one_permission_and_keep_the_other_original():
+    from datetime import datetime, timezone
+    scope = compatibility_scope_id("owner")
+    focus, meetings = uuid4(), uuid4()
+    f = series(scope, focus)
+    m = series(scope, meetings)
+    exc = EligibilityException(
+        uuid4(), "owner", f.id, START + timedelta(days=1), 1,
+        EligibilityAction.MOVE, "America/Toronto",
+        datetime(2027, 1, 5, 18, tzinfo=timezone.utc),
+        datetime(2027, 1, 5, 20, tzinfo=timezone.utc),
+    )
+    result = projection((legacy(scope),), (f, m), (exc,))
+    fragments = [v for v in result.fragments if any(
+        c.work_type_id == focus for c in v.choices)]
+    assert len(fragments) == 1
+    assert fragments[0].starts_at.hour == 18
+    assert dict(result.potential_minutes) == {focus: 120, meetings: 120}
+
