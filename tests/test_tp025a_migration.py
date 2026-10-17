@@ -28,7 +28,7 @@ def test_additive_upgrade_and_guarded_downgrade(tmp_path):
                    (identity, "Existing",))
     migrate(db_path, "upgrade", "head")
     with sqlite3.connect(db_path) as db:
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0017_tp025a"
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0018_tp025b"
         assert db.execute("SELECT name FROM work_types WHERE id=?", (identity,)).fetchone() == ("Existing",)
         assert db.execute("SELECT COUNT(*) FROM eligibility_series").fetchone()[0] == 0
         assert db.execute("SELECT COUNT(*) FROM recurring_availability_rules").fetchone()[0] == 0

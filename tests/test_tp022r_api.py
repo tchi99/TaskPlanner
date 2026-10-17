@@ -146,9 +146,12 @@ def test_keep_conflict_then_cancel_is_confirmed_audited_and_idempotent(runtime):
     assert len(history) == 1
     assert history[0]["event_type"] == "BOOKING_CONFLICT_RETAINED"
     with factory() as session:
-        assert len(session.scalars(select(HistoryEventRecord).where(
+        events = session.scalars(select(HistoryEventRecord).where(
             HistoryEventRecord.entity_type == "TIME_BLOCK",
-        )).all()) == 1
+        ).order_by(HistoryEventRecord.sequence)).all()
+        assert [event.event_type for event in events] == [
+            "TIME_BLOCK_CONFIRMED", "BOOKING_CONFLICT_RETAINED",
+        ]
     cancel, preview = snapshot(client, url, "CANCEL", revision=2)
     assert apply(client, url, {**cancel, "confirmed": False}, preview).status_code == 422
     removed = apply(client, url, cancel, preview)
@@ -238,5 +241,7 @@ def test_competing_confirmations_are_serialized_and_one_wins(runtime):
     with factory() as session:
         rows = session.scalars(select(HistoryEventRecord).where(
             HistoryEventRecord.entity_type == "TIME_BLOCK",
-        )).all()
-        assert len(rows) == 1
+        ).order_by(HistoryEventRecord.sequence)).all()
+        assert [event.event_type for event in rows] == [
+            "TIME_BLOCK_CONFIRMED", "BOOKING_CANCELLED",
+        ]
