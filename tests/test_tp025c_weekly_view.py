@@ -137,7 +137,7 @@ def test_local_booking_and_google_busy_union_without_false_free(runtime):
     with SqlAlchemyUnitOfWork(factory) as uow:
         uow.time_blocks.add(ConfirmedTimeBlock(
             week_start=WEEK, task_id=UUID(task_id), segment_id=None,
-            work_type_id=__import__("uuid").UUID(ids[0]),
+            work_type_id=UUID(ids[0]),
             starts_at=civil(day, 10), ends_at=civil(day, 10, 30),
             scope_id=compatibility_scope_id(OWNER)))
         uow.commit()
