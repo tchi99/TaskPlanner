@@ -874,3 +874,109 @@ test("TP-025C : trois barres, détails clavier, mobile et absence Google sécuri
   await expect(page.getByRole("table")).toBeVisible();
   await expect(page.getByRole("table").locator("tbody tr")).toHaveCount(3);
 });
+
+
+
+test("TP-025D : édition depuis barre au clavier, brouillon conservé après 409 sur mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let confirms = 0;
+  await page.route("**/api/availability/eligibility-edits/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const respond = (body: object, status = 200) => route.fulfill({
+      status, contentType: "application/json", body: JSON.stringify(body),
+    });
+    if (path.endsWith("/series/mock-focus-type")) {
+      return respond({ id: "mock-focus-type", version: 1, revisions: [{
+        effective_from: "2026-10-12", timezone_name: "UTC",
+        days_of_week: [1], starts_at_local: "10:00", ends_at_local: "11:00",
+        priority_rank: 1, enabled: true, start_fold: null, end_fold: null,
+      }] });
+    }
+    if (path.endsWith("/preview")) {
+      return respond({ fingerprint: "a".repeat(64), blocking_issues: [],
+        booking_inventory: [{ id: "future-reservation",
+          starts_at: "2027-01-05T10:00:00Z", ends_at: "2027-01-05T11:00:00Z" }],
+        before_physical_minutes: 60, after_physical_minutes: 60,
+        calendar_checked: false, consequences: ["Réservation confirmée conservée"],
+        projection_days: 93 });
+    }
+    if (path.endsWith("/confirm")) {
+      confirms++;
+      return respond({ detail: "eligibility preview is stale" }, 409);
+    }
+    return respond({ detail: "Unknown edit endpoint" }, 404);
+  });
+  await page.getByRole("button", { name: "Grille visuelle" }).click();
+  const bars = page.locator(".eligBar");
+  await bars.first().focus();
+  await page.keyboard.press("Enter");
+  await page.getByRole("button", { name: /Modifier la permission mock-foc/ }).click();
+  const editor = page.getByRole("region", { name: "Édition contextuelle d'admissibilité" });
+  await expect(editor).toBeVisible();
+  await editor.getByLabel("Rang contextuel (vide = neutre)").fill("4");
+  const sent = page.waitForRequest((request) =>
+    request.url().endsWith("/eligibility-edits/preview") && request.method() === "POST");
+  await editor.getByRole("button", { name: "Prévisualiser les conséquences" }).click();
+  expect((await sent).postDataJSON()).toMatchObject({
+    series_id: "mock-focus-type", expected_version: 1, priority_rank: 4,
+  });
+  const confirmButton = editor.getByRole("button", { name: "Confirmer cette édition future" });
+  await expect(confirmButton).toBeDisabled();
+  await editor.getByRole("checkbox", { name: /Je reconnais que 1 réservation/ }).check();
+  await expect(confirmButton).toBeEnabled();
+  page.once("dialog", (dialog) => dialog.accept());
+  await confirmButton.click();
+  expect(confirms).toBe(1);
+  await expect(editor.getByRole("alert")).toContainText("409");
+  await expect(editor.getByLabel("Rang contextuel (vide = neutre)")).toHaveValue("4");
+  await expect(confirmButton).toHaveCount(0);
+  await expect(editor.getByRole("button", { name: "Prévisualiser les conséquences" }))
+    .toBeEnabled();
+});
+
+test("TP-025D : confirmation depuis grille explicite, sans requête Google ni drag-resize", async ({ page }) => {
+  let confirms = 0;
+  let googleWrites = 0;
+  page.on("request", (request) => {
+    if (/google|calendar/i.test(request.url()) && request.method() !== "GET")
+      googleWrites++;
+  });
+  await page.route("**/api/availability/eligibility-edits/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const respond = (body: object) => route.fulfill({
+      contentType: "application/json", body: JSON.stringify(body),
+    });
+    if (path.endsWith("/series/mock-focus-type")) {
+      return respond({ id: "mock-focus-type", version: 1, revisions: [{
+        effective_from: "2026-10-12", timezone_name: "UTC",
+        days_of_week: [1], starts_at_local: "10:00", ends_at_local: "11:00",
+        priority_rank: 1, enabled: true, start_fold: null, end_fold: null,
+      }] });
+    }
+    if (path.endsWith("/preview")) return respond({
+      fingerprint: "c".repeat(64), blocking_issues: [], booking_inventory: [],
+      before_physical_minutes: 60, after_physical_minutes: 60,
+      calendar_checked: false, consequences: [], projection_days: 93,
+    });
+    if (path.endsWith("/confirm")) {
+      const body = route.request().postDataJSON();
+      expect(body).toMatchObject({ confirmed: true, fingerprint: "c".repeat(64) });
+      confirms++;
+      return respond({ applied: true, calendar_written: false,
+        series_id: "mock-focus-type" });
+    }
+    return route.fulfill({ status: 404 });
+  });
+  await page.getByRole("button", { name: "Grille visuelle" }).click();
+  await page.locator(".eligBar").first().click();
+  await page.getByRole("button", { name: /Modifier la permission mock-foc/ }).click();
+  const editor = page.getByRole("region", { name: "Édition contextuelle d'admissibilité" });
+  await editor.getByRole("button", { name: "Prévisualiser les conséquences" }).click();
+  await expect(editor.getByText(/Google non vérifié/)).toBeVisible();
+  expect(confirms).toBe(0);
+  page.once("dialog", (dialog) => dialog.accept());
+  await editor.getByRole("button", { name: "Confirmer cette édition future" }).click();
+  await expect(editor).toHaveCount(0);
+  expect(confirms).toBe(1);
+  expect(googleWrites).toBe(0);
+});

@@ -47,7 +47,7 @@ def test_tp024a_retains_legacy_rows_without_guessed_parent(tmp_path):
     migrate(path, "head")
     with sqlite3.connect(path) as db:
         assert db.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0018_tp025b",
+            "0019_tp025d",
         )
         assert db.execute(
             "SELECT work_type_id, scope_id FROM recurring_availability_revisions "

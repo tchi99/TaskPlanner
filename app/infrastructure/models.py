@@ -342,7 +342,7 @@ class HistoryEventRecord(Base):
             "sequence",
         ),
         CheckConstraint(
-            "entity_type IN ('TASK','SEGMENT','AVAILABILITY_RULE','AVAILABILITY_EXCEPTION','TIME_BLOCK')",
+            "entity_type IN ('TASK','SEGMENT','AVAILABILITY_RULE','AVAILABILITY_EXCEPTION','TIME_BLOCK','ELIGIBILITY_SERIES')",
             name="ck_history_events_entity_type",
         ),
         CheckConstraint(

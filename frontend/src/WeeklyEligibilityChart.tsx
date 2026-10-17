@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "./auth";
-import type { ScopeCatalog } from "./ScheduleCategories";
+import { EligibilityContextEditor } from "./EligibilityContextEditor";
+import { scopeForAt, type ScopeCatalog } from "./ScheduleCategories";
 import "./weekly-eligibility.css";
 
 type WorkType = { id: string; name: string };
@@ -58,6 +59,10 @@ type Proposal = {
 };
 type Layer = "configuration" | "occupation" | "proposed";
 type BarDetail = { title: string; dates: string; notes: string[] };
+type EditTarget = {
+  scopeId: string; workTypeId: string; seriesId: string | null;
+  legacyRuleId: string | null; selectedDate: string;
+};
 const weekdays = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 
 function timeLabel(value: string, zone: string): string {
@@ -98,6 +103,8 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
   const [workTypeFilter, setWorkTypeFilter] = useState("");
   const [showPriority, setShowPriority] = useState(true);
   const [detail, setDetail] = useState<BarDetail | null>(null);
+  const [editTargets, setEditTargets] = useState<EditTarget[]>([]);
+  const [editorTarget, setEditorTarget] = useState<EditTarget | null>(null);
   const [taskId, setTaskId] = useState("");
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [proposalError, setProposalError] = useState("");
@@ -108,6 +115,7 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
   useEffect(() => {
     let active = true;
     setLoading(true); setError(""); setSnapshot(null); setDetail(null);
+    setEditTargets([]); setEditorTarget(null);
     setProposal(null); setProposalError("");
     const query = new URLSearchParams({ week_start: week, timezone_name: zone });
     if (scopeId) query.set("scope_id", scopeId);
@@ -129,6 +137,26 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
     return "eligColor" + ((index < 0 ? 0 : index) % 6);
   }
   function showFragment(item: Fragment, choice: Choice) {
+    setEditorTarget(null);
+    const series = choice.exclusive ? [] : choice.source_details;
+    const legacy = choice.exclusive ? choice.sources
+      .filter((value) => value.startsWith("RULE:"))
+      .map((value) => value.split(":")[1]).filter((id, index, values) => values.indexOf(id) === index) : [];
+    const targets: EditTarget[] = choice.work_type_id === null ? [] : [
+      ...series.map((source) => ({ scopeId: item.scope_id,
+        workTypeId: choice.work_type_id!, seriesId: source.series_id,
+        legacyRuleId: null, selectedDate: item.local_date })),
+      ...legacy.map((id) => ({ scopeId: item.scope_id,
+        workTypeId: choice.work_type_id!, seriesId: null,
+        legacyRuleId: id, selectedDate: item.local_date })),
+    ];
+    const otherTypes = catalog ? workTypes.filter((type) =>
+      scopeForAt(type.id, item.local_date, catalog) === item.scope_id &&
+      !item.choices.some((other) => other.work_type_id === type.id)) : [];
+    setEditTargets([...targets, ...otherTypes.map((type) => ({
+      scopeId: item.scope_id, workTypeId: type.id,
+      seriesId: null, legacyRuleId: null, selectedDate: item.local_date,
+    }))]);
     setDetail({
       title: label(choice.work_type_id),
       dates: item.local_date + " · " + timeLabel(item.starts_at, zone) + " → " +
@@ -149,6 +177,7 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
     });
   }
   function showOccupation(item: Occupation) {
+    setEditorTarget(null); setEditTargets([]);
     setDetail({
       title: item.kind === "GOOGLE_VERIFIED" ? "Google occupé vérifié" : "Réservation locale confirmée",
       dates: item.local_date + " · " + timeLabel(item.starts_at, zone) + " → " + timeLabel(item.ends_at, zone),
@@ -328,8 +357,24 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
       {detail && <section className="eligDetail" aria-live="polite">
         <h4>{detail.title}</h4><p>{detail.dates}</p>
         <ul>{detail.notes.map((note, index) => <li key={index}>{note}</li>)}</ul>
-        <button type="button" onClick={() => setDetail(null)}>Fermer les détails</button>
+        {layer === "configuration" && editTargets.map((target, index) =>
+          <button key={target.seriesId || target.legacyRuleId || index} type="button"
+            onClick={() => setEditorTarget(target)}>
+            {target.legacyRuleId ? "Convertir la règle historique " + target.legacyRuleId.slice(0, 8) :
+              target.seriesId ? "Modifier la permission " + target.seriesId.slice(0, 8) :
+              "Ajouter une permission : " + label(target.workTypeId)}
+          </button>)}
+        <button type="button" onClick={() => { setDetail(null); setEditTargets([]);
+          setEditorTarget(null); }}>Fermer les détails</button>
       </section>}
+      {editorTarget && <EligibilityContextEditor
+        key={(editorTarget.seriesId || editorTarget.legacyRuleId || editorTarget.workTypeId) + ":" + editorTarget.selectedDate}
+        scopeId={editorTarget.scopeId} workTypeId={editorTarget.workTypeId}
+        seriesId={editorTarget.seriesId} legacyRuleId={editorTarget.legacyRuleId}
+        selectedDate={editorTarget.selectedDate} zone={zone}
+        onClose={() => setEditorTarget(null)}
+        onSaved={() => { setEditorTarget(null); setEditTargets([]); setDetail(null);
+          setRetry((value) => value + 1); }} />}
       {snapshot.issues.length > 0 && <div className="eligDiagnostics">
         <h4>Diagnostics ({snapshot.issues.length})</h4>
         <ul>{snapshot.issues.map((item, i) =>

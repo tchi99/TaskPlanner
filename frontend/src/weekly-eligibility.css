@@ -62,3 +62,15 @@
 @media (prefers-reduced-motion: reduce) {
   .eligibilityChart *, .eligibilityChart *::before, .eligibilityChart *::after { transition: none !important; }
 }
+
+.eligEdit { border: 1px solid #9db6c9; border-radius: 9px; padding: 14px; background: #f8fbfe; }
+.eligEdit h4, .eligEdit h5 { margin: 0 0 6px; }
+.eligEditForm { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.eligEditForm > label { display: grid; gap: 4px; min-width: 135px; }
+.eligEditForm > fieldset { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 8px 16px;
+  border: 1px solid #c4d1de; border-radius: 7px; }
+.eligEditForm > fieldset label { display: inline-flex; align-items: center; gap: 5px; }
+.eligPreview { border-top: 1px solid #bacbd9; margin-top: 14px; padding-top: 12px; }
+.eligPreview ul { padding-left: 22px; }
+.eligEditForm input, .eligEditForm select { max-width: 100%; }
+@media (max-width: 640px) { .eligEditForm > label { flex: 1 1 100%; } }
