@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta
 from hashlib import sha256
 import json
 from uuid import UUID, NAMESPACE_URL, uuid4, uuid5
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.application.effective_availability import _state
 from app.application.history import HistoryEvent, HistorySource
@@ -86,7 +86,10 @@ def read_series(uow: UnitOfWork, owner: str, identifier: UUID) -> dict:
 def _validate(uow: UnitOfWork, owner: str, draft: EligibilityDraft):
     if draft.series_id is not None and draft.legacy_rule_id is not None:
         raise ValueError("select a shared series or an exclusive legacy series, not both")
-    zone = ZoneInfo(draft.timezone_name)
+    try:
+        zone = ZoneInfo(draft.timezone_name)
+    except (ValueError, TypeError, ZoneInfoNotFoundError) as exc:
+        raise ValueError("invalid IANA timezone") from exc
     if draft.effective_from <= datetime.now(zone).date():
         raise ValueError("changes must start on a future local date")
     if uow.work_types.get(draft.work_type_id) is None:
@@ -100,6 +103,8 @@ def _validate(uow: UnitOfWork, owner: str, draft: EligibilityDraft):
         raise ValueError("work type does not belong to this parent at the effective date")
     # Domain validation also covers ordered weekdays, HH:MM, ranks and folds.
     new_id = draft.series_id or uuid5(NAMESPACE_URL, f"eligibility:{owner}:{draft.draft_id}")
+    if draft.series_id is None and uow.eligibility.get(new_id, owner) is not None:
+        raise EligibilityConflict("eligibility draft identity already saved; reopen the editor")
     current = None
     if draft.series_id is not None:
         current = uow.eligibility.get(draft.series_id, owner)
@@ -207,7 +212,7 @@ def _plan(uow: UnitOfWork, owner: str, draft: EligibilityDraft):
     inventory = [{
         "id": str(b.id), "starts_at": b.starts_at.isoformat(),
         "ends_at": b.ends_at.isoformat(),
-    } for b in all_bookings if b.starts_at.date() >= draft.effective_from
+    } for b in all_bookings if b.starts_at.astimezone(ZoneInfo(draft.timezone_name)).date() >= draft.effective_from
        and (b.scope_id or compat) == draft.scope_id]
     blocked = list(new_issues) + list(new_civil)
     if future_legacy_exceptions:
