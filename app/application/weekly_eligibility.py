@@ -56,6 +56,26 @@ def _day_pieces(start: datetime, end: datetime, zone: ZoneInfo, week: date):
         cursor = stop
 
 
+
+
+def _civil_day(week: date, offset: int, zone: ZoneInfo) -> dict:
+    """Wall-clock labels backed by elapsed UTC minutes, including DST days."""
+    day = week + timedelta(days=offset)
+    begin = datetime.combine(day, time.min, zone).astimezone(timezone.utc)
+    end = datetime.combine(day + timedelta(days=1), time.min, zone).astimezone(timezone.utc)
+    minutes = int((end - begin).total_seconds() // 60)
+    ticks = [{
+        "label": f"{hour:02d}:00",
+        "minute": int((datetime.combine(day, time(hour=hour), zone).astimezone(
+            timezone.utc) - begin).total_seconds() // 60),
+    } for hour in (0, 6, 12, 18)]
+    ticks.append({"label": "Fin", "minute": minutes})
+    return {
+        "local_date": day, "weekday": offset, "starts_at": begin,
+        "ends_at": end, "minutes": minutes, "ticks": ticks,
+    }
+
+
 def _choice_details(choice, series_by_id: dict[str, object]) -> dict:
     details = []
     for source in choice.sources:
@@ -222,20 +242,7 @@ def weekly_eligibility(
             and series[str(issue.series_id)].scope_id == selected]
         return {
             "week_start": week_start, "timezone_name": timezone_name,
-            "days": [{
-                "local_date": week_start + timedelta(days=offset),
-                "weekday": offset,
-                "starts_at": datetime.combine(
-                    week_start + timedelta(days=offset), time.min, zone).astimezone(timezone.utc),
-                "ends_at": datetime.combine(
-                    week_start + timedelta(days=offset + 1), time.min, zone).astimezone(timezone.utc),
-                "minutes": int((
-                    datetime.combine(week_start + timedelta(days=offset + 1),
-                                     time.min, zone).astimezone(timezone.utc)
-                    - datetime.combine(week_start + timedelta(days=offset),
-                                       time.min, zone).astimezone(timezone.utc)
-                ).total_seconds() // 60),
-            } for offset in range(7)],
+            "days": [_civil_day(week_start, offset, zone) for offset in range(7)],
             "scope_id": selected, "read_only": True,
             "projection": "PHYSICAL_ELIGIBILITY_NON_ADDITIVE",
             "revision_fingerprint": state.revision_fingerprint,
