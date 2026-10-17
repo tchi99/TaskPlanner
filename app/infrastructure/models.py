@@ -426,6 +426,102 @@ class WorkSessionRecord(Base):
     planned_minutes: Mapped[int | None] = mapped_column(Integer(), nullable=True)
 
 
+class EligibilitySeriesRecord(Base):
+    """TP-025A: a dedicated opt-in permission, not a legacy capacity rule."""
+    __tablename__ = "eligibility_series"
+    __table_args__ = (
+        Index("ix_eligibility_series_owner", "owner_id"),
+        CheckConstraint("version > 0", name="ck_eligibility_series_version"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    scope_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("schedule_scopes.id", ondelete="RESTRICT"), nullable=False,
+    )
+    work_type_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("work_types.id", ondelete="RESTRICT"), nullable=False,
+    )
+    version: Mapped[int] = mapped_column(Integer(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class EligibilityRevisionRecord(Base):
+    __tablename__ = "eligibility_revisions"
+    __table_args__ = (
+        UniqueConstraint("series_id", "number", name="uq_eligibility_revision_number"),
+        Index("ix_eligibility_revision_dates", "series_id", "effective_from", "number"),
+        CheckConstraint("number > 0", name="ck_eligibility_revision_number"),
+        CheckConstraint("priority_rank IS NULL OR priority_rank > 0",
+                        name="ck_eligibility_priority_rank"),
+        CheckConstraint("start_fold IS NULL OR start_fold IN (0,1)",
+                        name="ck_eligibility_start_fold"),
+        CheckConstraint("end_fold IS NULL OR end_fold IN (0,1)",
+                        name="ck_eligibility_end_fold"),
+        CheckConstraint("valid_until IS NULL OR valid_until > effective_from",
+                        name="ck_eligibility_revision_range"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    series_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("eligibility_series.id", ondelete="RESTRICT"), nullable=False,
+    )
+    number: Mapped[int] = mapped_column(Integer(), nullable=False)
+    effective_from: Mapped[date] = mapped_column(Date(), nullable=False)
+    valid_until: Mapped[date | None] = mapped_column(Date(), nullable=True)
+    timezone_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    days_of_week: Mapped[list[int]] = mapped_column(JSON(), nullable=False)
+    starts_at_local: Mapped[str] = mapped_column(String(5), nullable=False)
+    ends_at_local: Mapped[str] = mapped_column(String(5), nullable=False)
+    priority_rank: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    enabled: Mapped[bool] = mapped_column(nullable=False)
+    start_fold: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    end_fold: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    supersedes_future: Mapped[bool] = mapped_column(nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class EligibilityExceptionRecord(Base):
+    """Stable target/version row; content revisions are never overwritten."""
+    __tablename__ = "eligibility_exceptions"
+    __table_args__ = (
+        Index("ix_eligibility_exceptions_owner", "owner_id", "series_id"),
+        UniqueConstraint("owner_id", "series_id", "original_local_date",
+                         name="uq_eligibility_exception_target"),
+        CheckConstraint("version > 0", name="ck_eligibility_exception_version"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    series_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("eligibility_series.id", ondelete="RESTRICT"), nullable=False,
+    )
+    original_local_date: Mapped[date] = mapped_column(Date(), nullable=False)
+    version: Mapped[int] = mapped_column(Integer(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class EligibilityExceptionRevisionRecord(Base):
+    __tablename__ = "eligibility_exception_revisions"
+    __table_args__ = (
+        UniqueConstraint("exception_id", "number",
+                         name="uq_eligibility_exception_revision"),
+        CheckConstraint("number > 0", name="ck_eligibility_exception_rev_number"),
+        CheckConstraint("action IN ('REMOVE','MOVE')",
+                        name="ck_eligibility_exception_action"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    exception_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("eligibility_exceptions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    number: Mapped[int] = mapped_column(Integer(), nullable=False)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    timezone_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    starts_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    ends_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    enabled: Mapped[bool] = mapped_column(nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
 class RecurringAvailabilityRuleRecord(Base):
     """Stable series identity; optimistic revision counter is CAS-updated."""
     __tablename__ = "recurring_availability_rules"
