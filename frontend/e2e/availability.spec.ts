@@ -126,6 +126,54 @@ async function mockApi(page: Page) {
       return respond({ occurrences: [], issues: [] });
     if (path === "/api/availability/exceptions")
       return respond([]);
+    if (path === "/api/availability/eligibility-week") {
+      const selectedWeek = url.searchParams.get("week_start") || "2026-10-12";
+      const startDay = new Date(selectedWeek + "T00:00:00Z");
+      const days = Array.from({ length: 7 }, (_, index) => {
+        const d = new Date(startDay);
+        d.setUTCDate(d.getUTCDate() + index);
+        const next = new Date(d);
+        next.setUTCDate(next.getUTCDate() + 1);
+        return { local_date: d.toISOString().slice(0, 10), weekday: index,
+          starts_at: d.toISOString(), ends_at: next.toISOString(), minutes: 1440,
+          ticks: [0, 360, 720, 1080, 1440].map((minute) => ({
+            minute, label: minute === 1440 ? "Fin" : String(minute / 60).padStart(2, "0") + ":00",
+          })) };
+      });
+      const day = days[1];
+      const startAt = day.local_date + "T10:00:00Z";
+      const endAt = day.local_date + "T11:00:00Z";
+      const typeIds = ["focus-type", "second-type", "third-type"];
+      return respond({
+        week_start: selectedWeek, timezone_name: "UTC",
+        scope_id: compatibilityScope, read_only: true,
+        projection: "PHYSICAL_ELIGIBILITY_NON_ADDITIVE",
+        calendar_state: "NOT_CONFIGURED", calendar_checked: false,
+        calendar_error: "Google Calendar non configuré : libre non vérifié.",
+        physical_minutes: 60, local_occupied_minutes: 0,
+        verified_occupied_minutes: null, verified_free_minutes: null,
+        potential_minutes: typeIds.map((id) => ({
+          work_type_id: id, minutes: 60, non_additive: true,
+        })),
+        days, fragments: [{
+          local_date: day.local_date, weekday: 1,
+          starts_at: startAt, ends_at: endAt,
+          starts_at_local: startAt, ends_at_local: endAt,
+          start_minute: 600, end_minute: 660, day_minutes: 1440, minutes: 60,
+          scope_id: compatibilityScope, sources: ["RULE:general"],
+          null_residual: false, verification: "DECLARED_ONLY",
+          choices: typeIds.map((id, index) => ({
+            work_type_id: id, priority_rank: index + 1,
+            exclusive: false, legacy_mode: null,
+            sources: ["ELIGIBILITY:mock-" + id + ":" + day.local_date + ":v1"],
+            source_details: [{ series_id: "mock-" + id, revision: 1,
+              effective_from: selectedWeek, valid_until: null, timezone_name: "UTC",
+              original_local_date: day.local_date, source: id }],
+          })),
+        }],
+        occupations: [], issues: [], expansion_issues: [],
+      });
+    }
     if (path === "/api/availability/effective")
       return respond({ projection: "DECLARED_NOT_CALENDAR_VERIFIED", declared_minutes: 0,
         blocks: [], issues: [issue], expansion_issues: [] });
@@ -805,4 +853,24 @@ test("TP-024C : créer une feuille ne l'affecte pas automatiquement à son paren
     expected_affiliation_version: 0,
   });
   expect(affiliationConfirms).toBe(0);
+});
+
+
+test("TP-025C : trois barres, détails clavier, mobile et absence Google sécurisée", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "Grille visuelle" }).click();
+  await expect(page.getByText("60 minutes physiques déclarées")).toBeVisible();
+  await expect(page.getByText(/Temps libre inconnu/)).toBeVisible();
+  await expect(page.locator(".eligBar")).toHaveCount(3);
+  await page.locator(".eligBar").first().focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "Fermer les détails" })).toBeVisible();
+  await expect(page.getByText(/révision 1/)).toBeVisible();
+  await page.getByRole("button", { name: "Occupation réelle" }).click();
+  await expect(page.locator(".eligBar")).toHaveCount(0);
+  await page.getByRole("button", { name: "Plan proposé" }).click();
+  await expect(page.getByText(/Aucun plan prévisualisé/)).toBeVisible();
+  await page.getByText("Vue tabulaire accessible des intervalles et occupations").click();
+  await expect(page.getByRole("table")).toBeVisible();
+  await expect(page.getByRole("table").locator("tbody tr")).toHaveCount(3);
 });
