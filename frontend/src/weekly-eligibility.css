@@ -14,8 +14,11 @@
 .eligScroll { width: 100%; overflow-x: auto; border: 1px solid #c6d6e2; border-radius: 9px; background: #fff; }
 .eligScroll:focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
 .eligPlot { min-width: 880px; padding: 12px 13px 16px; }
-.eligRuler { display: grid; grid-template-columns: 116px repeat(5, 1fr); font-size: .76rem; color: #435469; margin-bottom: 6px; }
-.eligRuler span:not(:first-child) { text-align: center; }
+.eligTrackWrap { min-width: 0; }
+.eligLocalRuler { height: 18px; position: relative; color: #41546b; font-size: .72rem; }
+.eligLocalRuler span { position: absolute; top: 0; white-space: nowrap; transform: translateX(-50%); }
+.eligLocalRuler span.first { transform: none; }
+.eligLocalRuler span.last { transform: translateX(-100%); }
 .eligDay { display: grid; grid-template-columns: 116px minmax(0, 1fr); gap: 9px; align-items: stretch; margin: 6px 0; }
 .eligDayName { display: flex; flex-direction: column; justify-content: center; font-size: .83rem; }
 .eligDayName small { color: #485971; margin-top: 3px; }
