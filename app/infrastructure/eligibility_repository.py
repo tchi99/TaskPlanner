@@ -16,6 +16,7 @@ from app.domain.eligibility import (
 from app.infrastructure.models import (
     EligibilitySeriesRecord, EligibilityRevisionRecord,
     EligibilityExceptionRecord, EligibilityExceptionRevisionRecord,
+    ScheduleScopeRecord,
 )
 
 
@@ -72,6 +73,13 @@ class SqlEligibilityRepository:
     def add(self, value: EligibilitySeries) -> None:
         if value.version != 1:
             raise ValueError("new eligibility series must start at version 1")
+        scope = self._session.scalar(select(ScheduleScopeRecord).where(
+            ScheduleScopeRecord.id == str(value.scope_id),
+            ScheduleScopeRecord.owner_id == value.owner_id,
+            ScheduleScopeRecord.state == "ACTIVE",
+        ))
+        if scope is None:
+            raise LookupError("eligibility scope not owned or inactive")
         self._session.add(EligibilitySeriesRecord(
             id=str(value.id), owner_id=value.owner_id, scope_id=str(value.scope_id),
             work_type_id=str(value.work_type_id), version=1,
