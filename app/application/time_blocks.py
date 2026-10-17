@@ -118,9 +118,17 @@ def preview_time_blocks(
             for choice in fragment.choices
         )
         if shared or fixed_slots:
+            # A reservation stored in a neighboring ISO week can still cross
+            # the requested zone's UTC window. It must consume physical time.
+            neighbors = tuple(block for block in uow.time_blocks.list_all_confirmed()
+                              if block.week_start != week_start
+                              and block.starts_at.astimezone(timezone.utc)
+                              < end.astimezone(timezone.utc)
+                              and block.ends_at.astimezone(timezone.utc)
+                              > start.astimezone(timezone.utc))
             result = suggest_eligible_blocks(
                 week_start, timezone_name, availability.eligibility,
-                commitments, existing, candidates,
+                commitments, (*existing, *neighbors), candidates,
                 availability_fingerprint=availability.revision_fingerprint,
                 fixed=fixed_slots, offer_transfers=offer_transfers,
                 work_type_scopes=type_scopes,
