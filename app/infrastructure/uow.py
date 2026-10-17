@@ -20,6 +20,7 @@ from app.infrastructure.availability_exception_repository import SqlAvailability
 from app.infrastructure.recurring_availability_repository import SqlRecurringAvailabilityRepository
 from app.infrastructure.weekly_schedule_repository import SqlWeeklyScheduleCommandRepository
 from app.infrastructure.schedule_scope_repository import SqlScheduleScopeRepository
+from app.infrastructure.eligibility_repository import SqlEligibilityRepository
 
 
 class SqlAlchemyUnitOfWork:
@@ -31,6 +32,7 @@ class SqlAlchemyUnitOfWork:
         self.session = self._session_factory()
         self.availability = SqlAvailabilityRepository(self.session)
         self.recurring_availability = SqlRecurringAvailabilityRepository(self.session)
+        self.eligibility = SqlEligibilityRepository(self.session)
         self.availability_exceptions = SqlAvailabilityExceptionRepository(self.session)
         self.weekly_commands = SqlWeeklyScheduleCommandRepository(self.session)
         self.time_blocks = SqlConfirmedTimeBlockRepository(self.session)
