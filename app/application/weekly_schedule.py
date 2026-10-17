@@ -470,6 +470,25 @@ def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
     bounded_bookings = tuple(b for b in bookings if
                              b.starts_at.astimezone(ZoneInfo(draft.timezone_name)).date() < end and
                              b.ends_at.astimezone(ZoneInfo(draft.timezone_name)).date() >= draft.effective_from)
+    # Existing shared bookings must be compared against both the physical
+    # envelope and their dated permissions before and after a legacy edit.
+    from app.domain.eligibility_projection import (
+        project_eligibility, reconcile_booking_issues,
+    )
+    shared_series = tuple(uow.eligibility.list_owner(owner))
+    shared_exceptions = tuple(uow.eligibility.list_exceptions(owner))
+    compatibility = compatibility_scope_id(owner)
+    affiliations = uow.schedule_scopes.affiliations(owner)
+
+    def with_shared(physical, booked, start_date, end_date):
+        eligibility = project_eligibility(
+            physical, shared_series, shared_exceptions,
+            start_date, end_date, draft.timezone_name,
+            compatibility_id=compatibility, affiliations=affiliations,
+        )
+        return reconcile_booking_issues(physical, eligibility, booked,
+                                        compatibility)[0]
+
     before = project_effective(rules, exceptions, manual, bounded_bookings,
                                draft.effective_from, end, draft.timezone_name,
                                compatibility_id=compatibility_scope_id(owner),
@@ -478,6 +497,8 @@ def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
                               draft.effective_from, end, draft.timezone_name,
                               compatibility_id=compatibility_scope_id(owner),
                               affiliations=uow.schedule_scopes.affiliations(owner))
+    before = with_shared(before, bounded_bookings, draft.effective_from, end)
+    after = with_shared(after, bounded_bookings, draft.effective_from, end)
     invalid, diagnostics, diagnostics_truncated = _invalid_details(
         before, after, rules, future_rules, exceptions, proposed_exceptions,
         manual, draft.timezone_name)
@@ -496,7 +517,11 @@ def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
                                   compatibility_id=compatibility_scope_id(owner),
                                   affiliations=uow.schedule_scopes.affiliations(owner))
         new_p = project_effective(future_rules, proposed_exceptions, relevant_manual,
-                                  (booking,), local, stop, draft.timezone_name)
+                                  (booking,), local, stop, draft.timezone_name,
+                                  compatibility_id=compatibility_scope_id(owner),
+                                  affiliations=uow.schedule_scopes.affiliations(owner))
+        old_p = with_shared(old_p, (booking,), local, stop)
+        new_p = with_shared(new_p, (booking,), local, stop)
         was = any(i.booking_id == booking.id for i in old_p.issues)
         now = any(i.booking_id == booking.id for i in new_p.issues)
         if now:

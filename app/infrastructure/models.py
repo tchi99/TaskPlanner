@@ -274,6 +274,18 @@ class ConfirmedTimeBlockRecord(Base):
     revision: Mapped[int] = mapped_column(Integer(), nullable=False, default=1)
 
 
+class TimeBlockCommandRecord(Base):
+    """TP-025B owner-scoped receipt committed with bookings and history."""
+    __tablename__ = "time_block_confirmation_commands"
+    __table_args__ = (Index("ix_time_block_command_owner", "owner_id"),)
+
+    owner_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    command_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    result: Mapped[dict] = mapped_column(JSON(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
 class DailyReviewRecord(Base):
     """Daily choices only, not a task or calendar mutation."""
     __tablename__ = "daily_reviews"

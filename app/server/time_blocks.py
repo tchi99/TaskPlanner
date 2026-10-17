@@ -12,6 +12,7 @@ from app.application.time_blocks import (
 )
 from app.application.uow import UnitOfWork
 from app.domain.time_blocks import ConfirmedTimeBlock, TimeBlockPreview
+from app.domain.eligibility_allocator import FixedTimeRequest
 from app.infrastructure.google_calendar import (
     GoogleCalendarNotConfigured, GoogleCalendarUnavailable,
 )
@@ -23,16 +24,28 @@ from app.server.recurring_availability import _owner
 router = APIRouter(prefix="/api/capacity/weeks", tags=["time-blocks"])
 
 
+class FixedRequestPayload(BaseModel):
+    task_id: UUID
+    segment_id: UUID | None = None
+    starts_at: datetime
+    ends_at: datetime
+
+    def to_domain(self) -> FixedTimeRequest:
+        return FixedTimeRequest(self.task_id, self.starts_at, self.ends_at, self.segment_id)
+
+
 class TimeBlockSelection(BaseModel):
     task_ids: list[UUID]
     timezone_name: str = "UTC"
     offer_transfers: bool = False
+    fixed_slots: list[FixedRequestPayload] = Field(default_factory=list)
 
 
 class ConfirmTimeBlocks(TimeBlockSelection):
     fingerprint: str = Field(min_length=64, max_length=64)
     confirmed: Literal[True]
     accept_transfers: bool = False
+    command_id: UUID | None = None
 
 
 class SuggestedBlockResponse(BaseModel):
@@ -44,6 +57,10 @@ class SuggestedBlockResponse(BaseModel):
     ends_at: datetime
     minutes: int
     transferred_from: UUID | None = None
+    scope_id: UUID | None = None
+    eligibility_sources: list[str] = Field(default_factory=list)
+    priority_rank: int | None = None
+    placement_reason: str | None = None
 
 
 class UnplacedResponse(BaseModel):
@@ -109,6 +126,10 @@ class TimeBlockPreviewResponse(BaseModel):
                 "work_type_id": s.work_type_id, "starts_at": s.starts_at,
                 "ends_at": s.ends_at, "minutes": s.minutes,
                 "transferred_from": s.transferred_from,
+                "scope_id": s.scope_id,
+                "eligibility_sources": list(s.eligibility_sources),
+                "priority_rank": s.priority_rank,
+                "placement_reason": s.placement_reason,
             }) for s in proposal.suggestions],
             unplaced=[UnplacedResponse(**{
                 "task_id": u.task_id, "segment_id": u.segment_id, "label": u.label,
@@ -143,6 +164,7 @@ def preview(
     value, _ = _run(lambda: preview_time_blocks(
         uow, reader, week_start, payload.timezone_name, payload.task_ids,
         owner_id=_owner(request), offer_transfers=payload.offer_transfers,
+        fixed_slots=tuple(v.to_domain() for v in payload.fixed_slots),
     ))
     return TimeBlockPreviewResponse.from_domain(value)
 
@@ -157,7 +179,8 @@ def confirm(
         uow, reader, week_start, payload.timezone_name, payload.task_ids,
         expected_fingerprint=payload.fingerprint, confirm=True,
         owner_id=_owner(request), offer_transfers=payload.offer_transfers,
-        accept_transfers=payload.accept_transfers,
+        accept_transfers=payload.accept_transfers, command_id=payload.command_id,
+        fixed_slots=tuple(v.to_domain() for v in payload.fixed_slots),
     ))
     return ConfirmationResponse(blocks=[
         ConfirmedBlockResponse.from_domain(block) for block in blocks

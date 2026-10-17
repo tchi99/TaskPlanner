@@ -46,7 +46,7 @@ def test_legacy_revisions_preserved_same_date_and_downgrade_guard(tmp_path):
     migrate(path, "head")
     with sqlite3.connect(path) as db:
         assert db.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0017_tp025a",
+            "0018_tp025b",
         )
         assert db.execute(
             "SELECT number, effective_from, supersedes_future "

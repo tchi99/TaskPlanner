@@ -75,13 +75,14 @@ def test_secure_connection_policy_and_fresh_schema(postgres_engine):
             "availability_exceptions", "schedule_scopes",
             "work_type_scope_assignments", "scope_change_commands",
             "scope_change_audit", "eligibility_series", "eligibility_revisions",
-            "eligibility_exceptions", "eligibility_exception_revisions"} <= set(
+            "eligibility_exceptions", "eligibility_exception_revisions",
+            "time_block_confirmation_commands"} <= set(
                 inspect(postgres_engine).get_table_names(schema="taskplanner")
             )
     assert "tasks" not in inspect(postgres_engine).get_table_names(schema="public")
     with postgres_engine.connect() as connection:
         assert connection.scalar(text("SELECT current_schema()")) == "taskplanner"
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0017_tp025a"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0018_tp025b"
         assert connection.scalar(text(
             "SELECT pg_get_serial_sequence('taskplanner.history_events', 'sequence')"
         ))

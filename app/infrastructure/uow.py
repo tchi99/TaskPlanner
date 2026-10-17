@@ -12,6 +12,7 @@ from app.infrastructure.reference_repositories import (
 )
 from app.infrastructure.task_repository import SqlTaskRepository
 from app.infrastructure.time_block_repository import SqlConfirmedTimeBlockRepository
+from app.infrastructure.time_block_command_repository import SqlTimeBlockCommandRepository
 from app.infrastructure.daily_repository import SqlDailyReviewRepository
 from app.infrastructure.weekly_repository import SqlWeeklyReviewRepository
 from app.infrastructure.resume_repository import SqlResumePointRepository
@@ -36,6 +37,7 @@ class SqlAlchemyUnitOfWork:
         self.availability_exceptions = SqlAvailabilityExceptionRepository(self.session)
         self.weekly_commands = SqlWeeklyScheduleCommandRepository(self.session)
         self.time_blocks = SqlConfirmedTimeBlockRepository(self.session)
+        self.time_block_commands = SqlTimeBlockCommandRepository(self.session)
         self.daily_reviews = SqlDailyReviewRepository(self.session)
         self.weekly_reviews = SqlWeeklyReviewRepository(self.session)
         self.tasks = SqlTaskRepository(self.session)

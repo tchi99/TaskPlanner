@@ -8,6 +8,7 @@ from uuid import UUID
 from app.application.uow import UnitOfWork
 from app.application.planning_availability import effective_week
 from app.domain.capacity import validate_week_start
+from app.domain.eligibility_capacity import evaluate_eligibility_week
 from app.domain.planning import PlanProposalPreview, propose_plan
 
 
@@ -26,6 +27,13 @@ def propose_week(uow: UnitOfWork, week_start: date,
             if aggregate is None:
                 raise LookupError(f"task {task_id} not found")
             aggregates.append(aggregate)
+        has_shared = any(not choice.exclusive
+                         for fragment in availability.eligibility.fragments
+                         for choice in fragment.choices)
+        evaluator = (lambda tasks: evaluate_eligibility_week(
+            week_start, timezone_name, blocks, availability.eligibility, tasks,
+        )) if has_shared else None
         return propose_plan(week_start, blocks, aggregates,
                             preferred_declared_minutes=sum(
-                                b.minutes for b in availability.preferred_blocks))
+                                b.minutes for b in availability.preferred_blocks),
+                            capacity_evaluator=evaluator)

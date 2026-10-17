@@ -52,6 +52,10 @@ class SuggestedTimeBlock:
     ends_at: datetime
     minutes: int
     transferred_from: UUID | None = None
+    scope_id: UUID | None = None
+    eligibility_sources: tuple[str, ...] = ()
+    priority_rank: int | None = None
+    placement_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -7,6 +7,7 @@ from uuid import UUID
 
 from app.application.uow import UnitOfWork
 from app.application.planning_availability import effective_week
+from app.domain.eligibility_capacity import evaluate_eligibility_week
 from app.domain.capacity import (
     AvailabilityBlock,
     WeeklyCapacityEvaluation,
@@ -69,11 +70,18 @@ def evaluate_selection(
     if len(task_ids) != len(set(task_ids)):
         raise ValueError("candidate tasks must be unique")
     with uow:
-        blocks = effective_week(uow, owner_id, week_start, timezone_name).blocks
+        availability = effective_week(uow, owner_id, week_start, timezone_name)
+        blocks = availability.blocks
         aggregates = []
         for task_id in task_ids:
             aggregate = uow.tasks.get_aggregate(task_id)
             if aggregate is None:
                 raise LookupError(f"task {task_id} not found")
             aggregates.append(aggregate)
+        if any(not choice.exclusive for fragment in availability.eligibility.fragments
+               for choice in fragment.choices):
+            return evaluate_eligibility_week(
+                week_start, timezone_name, blocks, availability.eligibility,
+                aggregates,
+            )
         return evaluate_week(week_start, blocks, aggregates)
