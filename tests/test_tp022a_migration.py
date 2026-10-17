@@ -44,7 +44,7 @@ def test_upgrade_preserves_manual_capacity_and_existing_audit(tmp_path):
         )
     migrate(path, "head")
     with sqlite3.connect(path) as db:
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("0016_tp024a",)
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("0017_tp025a",)
         assert db.execute("SELECT id FROM availability_blocks").fetchone() == (block_id,)
         assert db.execute("SELECT sequence FROM history_events WHERE id=?", (event_id,)).fetchone() == (1,)
         db.execute(
@@ -70,7 +70,7 @@ def test_fresh_database_has_revision_schema(tmp_path):
     path = tmp_path / "fresh.db"
     migrate(path, "head")
     with sqlite3.connect(path) as db:
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("0016_tp024a",)
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("0017_tp025a",)
         columns = {column[1] for column in db.execute(
             "PRAGMA table_info(recurring_availability_revisions)"
         )}
