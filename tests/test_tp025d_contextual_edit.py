@@ -151,6 +151,17 @@ def test_opt_in_from_preferred_preserves_legacy_and_rejects_protected(runtime):
     book = client.get("/api/availability/eligibility-week", params={
         "week_start": "2027-01-04", "timezone_name": ZONE}).json()
     assert any(len(fragment["choices"]) == 2 for fragment in book["fragments"])
+    protected = client.post("/api/availability/rules", json={
+        "effective_from": "2027-01-04", "timezone_name": ZONE,
+        "days_of_week": [1], "starts_at_local": "10:00",
+        "ends_at_local": "12:00", "kind": "CATEGORIZED",
+        "work_type_id": meeting, "mode": "PROTECTED",
+    })
+    assert protected.status_code == 201, protected.text
+    rejected = client.post(BASE + "/preview", json=draft(
+        meeting, legacy_rule_id=protected.json()["id"],
+        expected_legacy_version=1))
+    assert rejected.status_code == 422
 
 
 def test_booking_ack_and_future_booking_persistence(runtime):
