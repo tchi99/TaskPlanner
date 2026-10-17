@@ -222,6 +222,20 @@ def weekly_eligibility(
             and series[str(issue.series_id)].scope_id == selected]
         return {
             "week_start": week_start, "timezone_name": timezone_name,
+            "days": [{
+                "local_date": week_start + timedelta(days=offset),
+                "weekday": offset,
+                "starts_at": datetime.combine(
+                    week_start + timedelta(days=offset), time.min, zone).astimezone(timezone.utc),
+                "ends_at": datetime.combine(
+                    week_start + timedelta(days=offset + 1), time.min, zone).astimezone(timezone.utc),
+                "minutes": int((
+                    datetime.combine(week_start + timedelta(days=offset + 1),
+                                     time.min, zone).astimezone(timezone.utc)
+                    - datetime.combine(week_start + timedelta(days=offset),
+                                       time.min, zone).astimezone(timezone.utc)
+                ).total_seconds() // 60),
+            } for offset in range(7)],
             "scope_id": selected, "read_only": True,
             "projection": "PHYSICAL_ELIGIBILITY_NON_ADDITIVE",
             "revision_fingerprint": state.revision_fingerprint,
