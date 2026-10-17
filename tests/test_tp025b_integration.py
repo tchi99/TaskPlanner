@@ -213,3 +213,54 @@ def test_google_busy_and_fixed_partial_reject_instead_of_fragmenting(runtime):
     assert not offer["suggestions"]
     assert not offer["can_confirm"]
     assert offer["unplaced"][0]["reason"] == "FIXED_SLOT_NOT_VERIFIED_FREE_OR_ADMISSIBLE"
+
+
+def test_capacity_potentials_are_alternatives_not_extra_physical_minutes(runtime):
+    client, _, factory = runtime
+    focus, meetings, _ = configure(client, factory, include_wednesday=True)
+    meeting_id = task(client, meetings, 60)
+    response = client.post(f"/api/capacity/weeks/{WEEK}/evaluate", json={
+        "task_ids": [meeting_id], "timezone_name": ZONE,
+    })
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["available_minutes"] == 120  # Tue + Wed, never 240
+    alternatives = [item for item in data["by_work_type"]
+                    if item["work_type_id"] in (str(focus), str(meetings))]
+    assert len(alternatives) == 2
+    assert all(item["available_minutes"] == 120
+               and item["alternative_potential"] for item in alternatives)
+    plan = client.post(f"/api/capacity/weeks/{WEEK}/proposals", json={
+        "task_ids": [meeting_id], "timezone_name": ZONE,
+    })
+    assert plan.status_code == 200, plan.text
+    assert plan.json()["baseline"]["available_minutes"] == 120
+
+
+def test_protected_meeting_precedes_flexible_focus_in_shared_slot(runtime):
+    from sqlalchemy import update
+    from app.infrastructure.models import TaskRecord
+
+    client, _, factory = runtime
+    focus, meetings, _ = configure(client, factory)
+    meeting_id, focus_id = task(client, meetings, 60), task(client, focus, 60)
+    with factory.begin() as session:
+        session.execute(update(TaskRecord).where(TaskRecord.id == meeting_id)
+                        .values(protection="PROTECTED"))
+    offer = preview(client, [focus_id, meeting_id])
+    assert {item["task_id"] for item in offer["suggestions"]} == {meeting_id}
+
+
+def test_neutral_wednesday_uses_user_order_when_tuesday_google_busy(runtime):
+    client, reader, factory = runtime
+    focus, meetings, _ = configure(client, factory, include_wednesday=True)
+    meeting_id, focus_id = task(client, meetings, 60), task(client, focus, 60)
+    reader.events.append(CalendarCommitment(
+        "primary", "tuesday", "Busy",
+        datetime.fromisoformat(local(DAY, 10)),
+        datetime.fromisoformat(local(DAY, 11)),
+    ))
+    offer = preview(client, [meeting_id, focus_id])
+    assert {item["task_id"] for item in offer["suggestions"]} == {meeting_id}
+    assert offer["suggestions"][0]["priority_rank"] is None
+    assert offer["suggestions"][0]["starts_at"] == local(date(2027, 1, 6), 10)
