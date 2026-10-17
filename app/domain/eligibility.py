@@ -129,6 +129,7 @@ class EligibilityOccurrence:
     work_type_id: UUID
     priority_rank: int | None
     source: str
+    timezone_name: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,7 +214,7 @@ def expand_eligibility(
                 source += f":EXCEPTION:{target.id}:v{target.version}"
             occurrences.append(EligibilityOccurrence(
                 rule.id, rev.number, day, start, end, rule.scope_id,
-                rule.work_type_id, rev.priority_rank, source))
+                rule.work_type_id, rev.priority_rank, source, rev.timezone_name))
     for key in targets:
         if key not in checked:
             issues.append(EligibilityExpansionIssue(
