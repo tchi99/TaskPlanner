@@ -31,7 +31,7 @@ test("mock setup and window preview: no confirmation or API request", async ({ p
   await page.getByLabel("Heure de fin").fill("11:30");
   await page.getByLabel("Rang de priorité (facultatif)").fill("1");
   await page.getByRole("button", { name: "Prévisualiser" }).click();
-  await expect(page.getByRole("status")).toContainText("Aucune plage n'a été enregistrée");
+  await expect(page.getByRole("status").filter({ hasText: "Aucune plage n'a été enregistrée" })).toContainText("Aucune plage n'a été enregistrée");
   await expect(page.getByLabel("Aperçu local")).toContainText('"priority":1');
   await expect(page.getByLabel("Aperçu local")).toContainText('"daysOfWeek":[1]');
   expect(apiRequests).toEqual([]);
