@@ -21,6 +21,7 @@ Ce dossier contient les Architecture Decision Records (ADR) de TaskPlanner.
 - [ADR-0022](./ADR-0022-weekly-schedule-atomic-editing.md) — édition hebdomadaire atomique et révisions temporelles;
 - [ADR-0023](./ADR-0023-schedule-scopes-and-temporal-category-migration.md) — parents d'horaire, enveloppes contextualisées et migration temporelle;
 - [ADR-0024](./ADR-0024-overlapping-eligibility-and-contextual-priorities.md) — admissibilités superposables, priorité contextuelle, repli automatique et grille hebdomadaire;
+- [ADR-0025](./ADR-0025-unified-availability-and-fresh-database.md) — modèle unique de disponibilités, parentage direct des sous-catégories et nouvelle baseline vierge;
 
 ## Convention
 
