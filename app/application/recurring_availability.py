@@ -37,9 +37,9 @@ def _check_work_type(uow: UnitOfWork, revision: RuleRevision) -> None:
 def create_rule(
     uow: UnitOfWork, owner_id: str, fields: dict,
 ) -> RecurringAvailabilityRule:
-    raise ValueError("exclusive recurring rule creation was removed; configure a parent envelope")
     if not owner_id or len(owner_id) > 128:
         raise ValueError("invalid rule owner")
+    raise ValueError("exclusive recurring rule creation was removed; configure a parent envelope")
     identity = uuid4()
     revision = RuleRevision(rule_id=identity, number=1, **fields)
     _ensure_future(revision)

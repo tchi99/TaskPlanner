@@ -599,8 +599,15 @@ def read_weekly(uow: UnitOfWork, owner: str, effect: date, zone: str,
                 scope_id: UUID | None = None):
     # The same future-date safety rule governs both read projection and writes.
     with uow:
-        _validate(WeeklyDraft(effect, zone, (Section(0, RuleKind.GENERAL, None, (), scope_id),), {}),
-                  uow, owner)
+        if scope_id is None:
+            parents = uow.schedule_scopes.list_owner(owner)
+            scope_id = parents[0].id if parents else None
+        if scope_id is not None:
+            _validate(WeeklyDraft(effect, zone, (Section(0, RuleKind.GENERAL, None, (), scope_id),), {}),
+                      uow, owner)
+        else:
+            if effect <= datetime.now(ZoneInfo(zone)).date():
+                raise ValueError("weekly changes must take effect tomorrow or later")
         rules = tuple(uow.recurring_availability.list_owner(owner))
         by_key = {}
         for rule in rules:
@@ -639,6 +646,7 @@ def read_weekly(uow: UnitOfWork, owner: str, effect: date, zone: str,
                  "effective_from": rev.effective_from.isoformat(),
                  "supersedes_future": rev.supersedes_future}
                 for r in rules for rev in r.revisions if rev.effective_from > effect
+                and rev.scope_id == scope_id
             ],
         }
 

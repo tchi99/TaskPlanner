@@ -61,6 +61,10 @@ class ProjectRecord(Base):
 
 class WorkTypeRecord(Base):
     __tablename__ = "work_types"
+    __table_args__ = (
+        CheckConstraint("version > 0", name="ck_work_type_version"),
+        Index("ix_work_type_scope", "scope_id"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
