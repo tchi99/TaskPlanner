@@ -112,7 +112,7 @@ def snapshot(url: URL, database: str) -> tuple:
                 )
             )
             revisions = tuple(sorted(row[0] for row in cursor.fetchall()))
-            if revisions != ("0019_tp025d",):
+            if revisions != ("0020_tp026_fresh",):
                 raise DrillError("Unexpected migration version")
             return tuple(result), sequences, revisions
 

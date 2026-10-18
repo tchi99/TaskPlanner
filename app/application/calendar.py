@@ -28,7 +28,8 @@ class CalendarWeek:
 
 
 def read_calendar_week(
-    uow: UnitOfWork, reader: CalendarReader, week_start: date, timezone_name: str
+    uow: UnitOfWork, reader: CalendarReader, week_start: date, timezone_name: str,
+    owner_id: str = "urn:taskplanner:local",
 ) -> CalendarWeek:
     validate_week_start(week_start)
     try:
@@ -44,7 +45,7 @@ def read_calendar_week(
     ))
     with uow:
         manual_blocks = effective_week(
-            uow, "urn:taskplanner:local", week_start, timezone_name).blocks
+            uow, owner_id, week_start, timezone_name).blocks
     return CalendarWeek(
         timezone_name=timezone_name,
         capacity=calculate_calendar_capacity(week_start, manual_blocks, commitments),

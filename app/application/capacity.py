@@ -30,6 +30,7 @@ def add_block(
     ends_at: datetime,
     work_type_id: UUID | None = None,
 ) -> AvailabilityBlock:
+    raise ValueError("legacy manual capacity writes were removed; configure a parent envelope")
     block = AvailabilityBlock(
         week_start=week_start,
         starts_at=starts_at,

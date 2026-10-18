@@ -1,12 +1,13 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.application.projects import (
     create_project, create_work_type, rename_work_type, get_project,
     list_project_tasks, list_projects, list_work_types,
 )
 from app.application.uow import UnitOfWork
+from app.domain.recurring_availability import RuleConflict
 from app.infrastructure.uow import get_uow
 from app.server.errors import invoke
 from app.server.recurring_availability import _owner
@@ -52,9 +53,13 @@ def create_type(request: Request, payload: WorkTypeCreateRequest,
 @work_types_router.patch("/{work_type_id}", response_model=WorkTypeResponse)
 def update_type(work_type_id: UUID, request: Request, payload: WorkTypeUpdateRequest,
                 uow: UnitOfWork = Depends(get_uow)) -> WorkTypeResponse:
-    return WorkTypeResponse.from_domain(invoke(lambda: rename_work_type(
-        uow, _owner(request), work_type_id, payload.name, payload.description,
-        payload.expected_version)))
+    try:
+        result = invoke(lambda: rename_work_type(
+            uow, _owner(request), work_type_id, payload.name, payload.description,
+            payload.expected_version))
+    except RuleConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return WorkTypeResponse.from_domain(result)
 
 
 @work_types_router.get("", response_model=list[WorkTypeResponse])
