@@ -19,3 +19,32 @@ class ScheduleScope:
             raise ValueError("scope name must have 1-200 characters")
         if self.version < 1 or self.state not in ("ACTIVE", "INACTIVE"):
             raise ValueError("invalid scope version or state")
+
+
+# Projection adapter: affiliations are computed from permanent WorkType.scope_id.
+# This structure is never persisted or edited as dated history in TP-026.
+from datetime import date
+
+
+@dataclass(frozen=True, slots=True)
+class ScopeAffiliation:
+    work_type_id: UUID
+    scope_id: UUID
+    owner_id: str
+    effective_from: date = date.min
+    version: int = 1
+
+
+def compatibility_scope_id(owner_id: str) -> UUID:
+    """Legacy-only sentinel, never a real parent or source of physical time."""
+    return UUID(int=0)
+
+
+def effective_scope(work_type_id: UUID, civil_date: date,
+                    affiliations: tuple[ScopeAffiliation, ...],
+                    compatibility_id: UUID | None = None) -> UUID:
+    matches = {item.scope_id for item in affiliations
+               if item.work_type_id == work_type_id}
+    if len(matches) != 1:
+        raise ValueError("work type lacks a real parent; classify explicitly")
+    return next(iter(matches))

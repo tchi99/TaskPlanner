@@ -5,6 +5,7 @@ from datetime import date
 
 from app.application.uow import UnitOfWork
 from app.application.planning_availability import effective_week
+from app.domain.eligibility_capacity import evaluate_eligibility_week
 from app.domain.model import TaskStatus
 from app.domain.morning import MorningBrief, build_morning_brief
 
@@ -21,9 +22,12 @@ def morning_brief(uow: UnitOfWork, day: date, timezone_name: str,
                 if aggregate is None:
                     raise LookupError(f"task {task.id} not found")
                 aggregates.append(aggregate)
+        availability = effective_week(uow, owner_id, monday, timezone_name)
         return build_morning_brief(
-            day, timezone_name,
-            effective_week(uow, owner_id, monday, timezone_name).blocks,
+            day, timezone_name, availability.blocks,
             aggregates, sum(task.status is TaskStatus.INBOX for task in all_tasks),
             manual_block_count=len(uow.availability.list_week(monday)),
+            capacity_evaluator=lambda selected: evaluate_eligibility_week(
+                monday, timezone_name, availability.blocks,
+                availability.eligibility, selected),
         )

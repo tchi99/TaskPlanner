@@ -8,7 +8,8 @@ from zoneinfo import ZoneInfo
 
 from app.application.uow import UnitOfWork
 from app.application.planning_availability import effective_week
-from app.domain.capacity import WeeklyCapacityEvaluation, evaluate_week, validate_week_start
+from app.domain.capacity import WeeklyCapacityEvaluation, validate_week_start
+from app.domain.eligibility_capacity import evaluate_eligibility_week
 from app.domain.daily import validate_timezone
 from app.domain.model import ProtectionLevel, ProjectStatus, TaskStatus
 from app.domain.planning import effective_task_protection
@@ -86,10 +87,10 @@ def read_weekly(uow: UnitOfWork, week_start: date, timezone_name: str,
                     task, next_action.label if next_action else None,
                     effective_task_protection(aggregate),
                 )
-        capacity_blocks = effective_week(
-            uow, owner_id, week_start, timezone_name,
-        ).blocks
-        capacity = evaluate_week(week_start, capacity_blocks, open_aggregates)
+        availability = effective_week(uow, owner_id, week_start, timezone_name)
+        capacity = evaluate_eligibility_week(
+            week_start, timezone_name, availability.blocks,
+            availability.eligibility, open_aggregates)
         interactions = uow.weekly_reviews.latest_task_interactions(as_of)
         def make_item(task, next_action, protection):
             return WeeklyTask(

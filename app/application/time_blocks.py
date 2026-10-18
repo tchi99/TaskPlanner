@@ -19,9 +19,7 @@ from app.application.uow import UnitOfWork
 from app.domain.capacity import validate_week_start
 from app.domain.eligibility_allocator import FixedTimeRequest, suggest_eligible_blocks
 from app.domain.schedule_scopes import compatibility_scope_id, effective_scope
-from app.domain.time_blocks import (
-    ConfirmedTimeBlock, TimeBlockPreview, suggest_time_blocks,
-)
+from app.domain.time_blocks import ConfirmedTimeBlock, TimeBlockPreview
 
 
 class StaleTimeBlockProposal(Exception):
@@ -103,73 +101,37 @@ def preview_time_blocks(
             if aggregate is None:
                 raise LookupError(f"task {task_id} not found")
             candidates.append(aggregate)
-        affiliations = uow.schedule_scopes.affiliations(owner_id)
-        compatibility = compatibility_scope_id(owner_id)
-        type_scopes = {}
-        for work_type in uow.work_types.list_all():
-            first = effective_scope(work_type.id, week_start, affiliations, compatibility)
-            if all(effective_scope(work_type.id, week_start + timedelta(days=i),
-                                   affiliations, compatibility) == first
-                   for i in range(1, 7)):
-                type_scopes[work_type.id] = first
-        shared = any(
-            not choice.exclusive
-            for fragment in availability.eligibility.fragments
-            for choice in fragment.choices
+        type_scopes = {v.id: v.scope_id for v in uow.work_types.list_owner(owner_id)}
+        # Use one eligibility allocator even with one choice or zero permissions.
+        neighbors = tuple(block for block in uow.time_blocks.list_all_confirmed()
+                          if block.week_start != week_start
+                          and block.starts_at.astimezone(timezone.utc)
+                          < end.astimezone(timezone.utc)
+                          and block.ends_at.astimezone(timezone.utc)
+                          > start.astimezone(timezone.utc))
+        result = suggest_eligible_blocks(
+            week_start, timezone_name, availability.eligibility,
+            commitments, (*existing, *neighbors), candidates,
+            availability_fingerprint=availability.revision_fingerprint,
+            fixed=fixed_slots, offer_transfers=False,
+            work_type_scopes=type_scopes,
         )
-        if shared or fixed_slots:
-            # A reservation stored in a neighboring ISO week can still cross
-            # the requested zone's UTC window. It must consume physical time.
-            neighbors = tuple(block for block in uow.time_blocks.list_all_confirmed()
-                              if block.week_start != week_start
-                              and block.starts_at.astimezone(timezone.utc)
-                              < end.astimezone(timezone.utc)
-                              and block.ends_at.astimezone(timezone.utc)
-                              > start.astimezone(timezone.utc))
-            result = suggest_eligible_blocks(
-                week_start, timezone_name, availability.eligibility,
-                commitments, (*existing, *neighbors), candidates,
-                availability_fingerprint=availability.revision_fingerprint,
-                fixed=fixed_slots, offer_transfers=offer_transfers,
-                work_type_scopes=type_scopes,
-            )
-        else:
-            result = suggest_time_blocks(
-                week_start, timezone_name, availability.blocks, commitments,
-                existing, candidates, preferred_blocks=availability.preferred_blocks,
-                offer_transfers=offer_transfers,
-                availability_fingerprint=availability.revision_fingerprint,
-                work_type_scopes=type_scopes,
-            )
         if not confirm:
             return result, ()
-        if (shared or fixed_slots) and command_id is None:
+        if command_id is None:
             raise ValueError("command_id is required for shared or fixed confirmations")
         if not expected_fingerprint or expected_fingerprint != result.fingerprint:
             raise StaleTimeBlockProposal("proposal is stale; request a new preview")
         if not result.can_confirm:
             raise ValueError("proposal is incomplete and cannot be confirmed")
-        if result.requires_transfer_confirmation and not accept_transfers:
-            raise ValueError("PREFERRED transfers require explicit acceptance")
 
         def source_scope(item):
-            if item.scope_id is not None:
-                # Allocation produced this provenance from one physical minute
-                # per interval, which was revalidated under the planning lock.
-                return item.scope_id
-            donor = item.transferred_from or item.work_type_id
-            matches = {
-                block.scope_id for block in availability.blocks
-                if block.work_type_id == donor
-                and block.starts_at <= item.starts_at.astimezone(block.starts_at.tzinfo)
-                and block.ends_at >= item.ends_at.astimezone(block.ends_at.tzinfo)
-            }
-            if len(matches) != 1:
-                raise ValueError("booking scope is ambiguous or unavailable; preview again")
-            return next(iter(matches))
+            if item.work_type_id is None or item.work_type_id not in type_scopes:
+                raise ValueError("classify work under a real parent before booking")
+            if item.scope_id != type_scopes[item.work_type_id]:
+                raise ValueError("booking permission and WorkType parent disagree")
+            return item.scope_id
 
-        if any(source_scope(item) == compatibility for item in result.suggestions):
-            uow.schedule_scopes.ensure_compatibility(owner_id)
         accepted = tuple(ConfirmedTimeBlock(
             week_start=week_start, task_id=s.task_id, segment_id=s.segment_id,
             work_type_id=s.work_type_id, starts_at=s.starts_at, ends_at=s.ends_at,

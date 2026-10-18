@@ -97,7 +97,7 @@ def _validate(uow: UnitOfWork, owner_id: str, value: AvailabilityException) -> N
         raise ValueError("work type does not exist")
     if value.scope_id is not None:
         scope = uow.schedule_scopes.get(owner_id, value.scope_id)
-        if scope is None or scope.is_compatibility or scope.state != "ACTIVE":
+        if scope is None or scope.state != "ACTIVE":
             raise ValueError("scope does not exist or is not active for this owner")
         if value.work_type_id is not None:
             when = value.original_local_date or value.starts_at.astimezone(

@@ -1,6 +1,6 @@
 """Owner-scoped physical schedule parents: no synthetic compatibility identity."""
 from __future__ import annotations
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import json
 from uuid import UUID, uuid4
 
@@ -8,7 +8,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.domain.recurring_availability import RuleConflict
-from app.domain.schedule_scopes import ScheduleScope
+from app.domain.schedule_scopes import ScheduleScope, ScopeAffiliation
 from app.infrastructure.models import (
     ScheduleScopeRecord, ScopeChangeCommandRecord, ScopeChangeAuditRecord,
     WorkTypeRecord,
@@ -51,6 +51,23 @@ class SqlScheduleScopeRepository:
         if self.session.execute(stmt).rowcount != 1:
             raise RuleConflict("scope version changed")
         self.session.flush()
+
+    def affiliations(self, owner: str) -> tuple[ScopeAffiliation, ...]:
+        # Read-only projection from permanent WorkType parent; no dated records.
+        rows = self.session.execute(select(WorkTypeRecord.id, WorkTypeRecord.scope_id)
+            .join(ScheduleScopeRecord, WorkTypeRecord.scope_id == ScheduleScopeRecord.id)
+            .where(ScheduleScopeRecord.owner_id == owner)).all()
+        return tuple(ScopeAffiliation(UUID(ident), UUID(scope), owner)
+                     for ident, scope in rows)
+
+    def versions(self, owner: str) -> dict[str, int]:
+        rows = self.session.execute(select(WorkTypeRecord.id, WorkTypeRecord.version)
+            .join(ScheduleScopeRecord, WorkTypeRecord.scope_id == ScheduleScopeRecord.id)
+            .where(ScheduleScopeRecord.owner_id == owner)).all()
+        return {ident: version for ident, version in rows}
+
+    def ensure_compatibility(self, owner: str) -> None:
+        raise ValueError("synthetic compatibility parents are not supported")
 
     def command(self, owner: str, ident: UUID) -> ScopeChangeCommandRecord | None:
         return self.session.get(ScopeChangeCommandRecord, (owner, str(ident)))

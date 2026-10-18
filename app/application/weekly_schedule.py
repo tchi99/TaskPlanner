@@ -147,7 +147,7 @@ def _validate(draft: WeeklyDraft, uow: UnitOfWork, owner: str) -> dict:
                 raise ValueError("legacy cells cannot create categorized intervals outside compatibility")
         if section.scope_id is not None:
             scope = uow.schedule_scopes.get(owner, section.scope_id)
-            if scope is None or scope.is_compatibility or scope.state != "ACTIVE":
+            if scope is None or scope.state != "ACTIVE":
                 raise ValueError("section scope is not active or owned by this user")
             if section.kind is RuleKind.CATEGORIZED:
                 member = effective_scope(

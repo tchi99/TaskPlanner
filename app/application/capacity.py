@@ -78,10 +78,6 @@ def evaluate_selection(
             if aggregate is None:
                 raise LookupError(f"task {task_id} not found")
             aggregates.append(aggregate)
-        if any(not choice.exclusive for fragment in availability.eligibility.fragments
-               for choice in fragment.choices):
-            return evaluate_eligibility_week(
-                week_start, timezone_name, blocks, availability.eligibility,
-                aggregates,
-            )
-        return evaluate_week(week_start, blocks, aggregates)
+        return evaluate_eligibility_week(
+            week_start, timezone_name, blocks, availability.eligibility, aggregates,
+        )
