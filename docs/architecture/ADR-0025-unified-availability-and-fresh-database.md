@@ -126,7 +126,7 @@ Les anciens champs de DTO et anciens endpoints supprimés doivent **échouer exp
 
 ## 6. Impact ciblé sur les ADR déjà acceptés
 
-**Le présent ADR est la décision la plus récente et **prévaut uniquement** sur les clauses de compatibilité des ADR antérieurs spécifiées ici. Les garanties qui ne sont pas mentionnées restent applicables.** Aucun ADR antérieur n'est réputé intégralement abrogé.
+**Le présent ADR prévaut uniquement sur les clauses de compatibilité des ADR antérieurs spécifiées ici.** Les garanties qui ne sont pas mentionnées restent applicables. Aucun ADR antérieur n'est réputé intégralement abrogé.
 
 | ADR antérieur | Clauses ciblées remplacées pour le **nouveau modèle vierge** | Contrats conservés |
 |---|---|---|
