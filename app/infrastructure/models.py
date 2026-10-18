@@ -65,7 +65,10 @@ class WorkTypeRecord(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text(), nullable=True)
-
+    scope_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("schedule_scopes.id", ondelete="RESTRICT"), nullable=False,
+    )
+    version: Mapped[int] = mapped_column(Integer(), nullable=False, default=1)
 
 
 class ScheduleScopeRecord(Base):
@@ -83,39 +86,6 @@ class ScheduleScopeRecord(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     state: Mapped[str] = mapped_column(String(16), nullable=False)
     version: Mapped[int] = mapped_column(Integer(), nullable=False)
-    is_compatibility: Mapped[bool] = mapped_column(nullable=False, default=False)
-
-
-class WorkTypeScopeVersionRecord(Base):
-    """CAS counter for one owner's temporal WorkType affiliation history."""
-    __tablename__ = "work_type_scope_versions"
-    owner_id: Mapped[str] = mapped_column(String(128), primary_key=True)
-    work_type_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("work_types.id", ondelete="RESTRICT"), primary_key=True,
-    )
-    version: Mapped[int] = mapped_column(Integer(), nullable=False)
-
-
-class WorkTypeScopeAssignmentRecord(Base):
-    """Append-only, civil-dated attachment; later records never rewrite history."""
-    __tablename__ = "work_type_scope_assignments"
-    __table_args__ = (
-        UniqueConstraint("owner_id", "work_type_id", "version",
-                         name="uq_scope_assignment_version"),
-        Index("ix_scope_assignment_lookup", "owner_id", "work_type_id",
-              "effective_from", "version"),
-    )
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    owner_id: Mapped[str] = mapped_column(String(128), nullable=False)
-    work_type_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("work_types.id", ondelete="RESTRICT"), nullable=False,
-    )
-    scope_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("schedule_scopes.id", ondelete="RESTRICT"), nullable=False,
-    )
-    effective_from: Mapped[date] = mapped_column(Date(), nullable=False)
-    version: Mapped[int] = mapped_column(Integer(), nullable=False)
-    recorded_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
 class ScopeChangeAuditRecord(Base):

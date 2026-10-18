@@ -83,6 +83,7 @@ class ProjectResponse(BaseModel):
 class WorkTypeCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: str | None = None
+    scope_id: UUID
 
     @field_validator("name")
     @classmethod
@@ -92,14 +93,23 @@ class WorkTypeCreateRequest(BaseModel):
         return value.strip()
 
 
+class WorkTypeUpdateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    description: str | None = None
+    expected_version: int = Field(ge=1)
+
+
 class WorkTypeResponse(BaseModel):
     id: UUID
     name: str
     description: str | None
+    scope_id: UUID
+    version: int
 
     @classmethod
     def from_domain(cls, value: WorkType) -> "WorkTypeResponse":
-        return cls(id=value.id, name=value.name, description=value.description)
+        return cls(id=value.id, name=value.name, description=value.description,
+                   scope_id=value.scope_id, version=value.version)
 
 
 class TaskClarificationRequest(BaseModel):
