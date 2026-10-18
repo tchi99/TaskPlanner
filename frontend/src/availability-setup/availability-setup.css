@@ -1,0 +1,40 @@
+.tp26 { display: grid; gap: 16px; min-width: 0; color: #18283d; }
+.tp26-guide, .tp26-empty, .tp26-form-card {
+  padding: 18px; background: #fff; border: 1px solid #cddae5; border-radius: 14px;
+}
+.tp26 h2, .tp26 h3 { margin: 0 0 8px; }
+.tp26 p { line-height: 1.5; margin: 5px 0 12px; }
+.tp26-steps { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 10px; }
+.tp26-steps li { border: 1px solid #d8e3ed; border-radius: 10px; padding: 12px;
+  display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+.tp26-steps li div { display: grid; gap: 4px; }
+.tp26-steps li span, .tp26-hint { color: #506579; font-size: .88rem; }
+.tp26 button { min-height: 44px; padding: 9px 14px; border: 1px solid #124f66; border-radius: 9px;
+  background: #145d70; color: #fff; cursor: pointer; font: inherit; font-weight: 600; }
+.tp26 button:disabled { cursor: not-allowed; opacity: .55; }
+.tp26 button.tp26-secondary { background: #fff; color: #224257; border-color: #91a5b5; }
+.tp26 button:focus-visible, .tp26 input:focus-visible, .tp26 select:focus-visible {
+  outline: 3px solid #2563eb; outline-offset: 2px;
+}
+.tp26-empty { border-style: dashed; background: #f7fbfd; }
+.tp26-form-header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: start; }
+.tp26-form-header p { max-width: 560px; }
+.tp26-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
+.tp26-fields label { display: grid; align-content: start; gap: 6px; min-width: 0; margin: 4px 0; }
+.tp26 input:not([type="checkbox"]), .tp26 select { width: 100%; min-width: 0; min-height: 44px;
+  padding: 9px 11px; border: 1px solid #8a9dad; border-radius: 8px; background: #fff;
+  color: #162a40; font: inherit; }
+.tp26 [aria-invalid="true"] { border-color: #b42318 !important; }
+.tp26-days { margin: 14px 0; padding: 12px; border: 1px solid #cddae5; border-radius: 9px; }
+.tp26-days legend { padding: 0 6px; font-weight: 650; }
+.tp26-days > div { display: flex; flex-wrap: wrap; gap: 12px 18px; }
+.tp26-days label { display: inline-flex; align-items: center; gap: 7px; margin: 0; }
+.tp26-days input { width: 18px; height: 18px; }
+.tp26-error { color: #9f1c1c; font-size: .85rem; }
+.tp26-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+@media (max-width: 640px) {
+  .tp26-guide, .tp26-empty, .tp26-form-card { padding: 13px; }
+  .tp26-fields { grid-template-columns: 1fr; }
+  .tp26-steps li { align-items: stretch; flex-direction: column; }
+  .tp26-steps li button { width: 100%; }
+}
