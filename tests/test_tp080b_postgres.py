@@ -68,21 +68,23 @@ def postgres_engine():
         engine.dispose()
 
 
+
 def test_secure_connection_policy_and_fresh_schema(postgres_engine):
+    """The private schema is created from the single TP-026A baseline."""
+    tables = set(inspect(postgres_engine).get_table_names(schema="taskplanner"))
     assert {"projects", "tasks", "task_segments", "history_events",
             "work_sessions", "weekly_decisions", "daily_reviews",
             "recurring_availability_rules", "recurring_availability_revisions",
-            "availability_exceptions", "schedule_scopes",
-            "work_type_scope_assignments", "scope_change_commands",
-            "scope_change_audit", "eligibility_series", "eligibility_revisions",
+            "availability_exceptions", "schedule_scopes", "work_types",
+            "eligibility_series", "eligibility_revisions",
             "eligibility_exceptions", "eligibility_exception_revisions",
-            "time_block_confirmation_commands"} <= set(
-                inspect(postgres_engine).get_table_names(schema="taskplanner")
-            )
+            "time_block_confirmation_commands", "alembic_version"} <= tables
+    assert "work_type_scope_assignments" not in tables
+    assert "work_type_scope_versions" not in tables
     assert "tasks" not in inspect(postgres_engine).get_table_names(schema="public")
     with postgres_engine.connect() as connection:
         assert connection.scalar(text("SELECT current_schema()")) == "taskplanner"
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0019_tp025d"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0020_tp026_fresh"
         assert connection.scalar(text(
             "SELECT pg_get_serial_sequence('taskplanner.history_events', 'sequence')"
         ))
@@ -92,7 +94,6 @@ def test_secure_connection_policy_and_fresh_schema(postgres_engine):
             "AND indexname = 'uq_work_sessions_single_active'"
         ))
         assert definition and "WHERE" in definition and "ACTIVE" in definition
-
     for bad in (
         "sqlite:///./production.db",
         "postgresql+psycopg://user:pass@localhost/db?sslmode=disable",
@@ -222,53 +223,32 @@ def test_invalid_history_rolls_back_task_atomically(postgres_engine):
         )) is None
 
 
-def test_tp022a_recurring_rules_round_trip_in_private_postgres(postgres_engine):
-    """Exercise the Alembic-created tables, JSON weekdays and CAS on PostgreSQL."""
-    from app.application.projects import create_work_type
-    from app.application.recurring_availability import (
-        create_rule, get_rule, revise_rule, read_occurrences,
-    )
-    from app.domain.recurring_availability import AvailabilityMode, RuleConflict, RuleKind
-    from zoneinfo import ZoneInfo
 
-    factory = sessionmaker(
-        bind=postgres_engine, autoflush=False, expire_on_commit=False
-    )
-    focus = create_work_type(SqlAlchemyUnitOfWork(factory), "TP-022A PG focus")
-    start = datetime.now(ZoneInfo("America/Toronto")).date() + timedelta(days=14)
-    payload = {
-        "effective_from": start, "valid_until": None,
-        "timezone_name": "America/Toronto", "days_of_week": (1, 3),
-        "starts_at_local": "09:00", "ends_at_local": "11:30",
-        "kind": RuleKind.CATEGORIZED, "work_type_id": focus.id,
-        "mode": AvailabilityMode.PROTECTED, "enabled": True,
-        "start_fold": None, "end_fold": None,
-    }
-    value = create_rule(SqlAlchemyUnitOfWork(factory), "pg-owner", payload)
-    assert get_rule(SqlAlchemyUnitOfWork(factory), "pg-owner", value.id).version == 1
-    found, issues = read_occurrences(
-        SqlAlchemyUnitOfWork(factory), "pg-owner", start, start + timedelta(days=7)
-    )
-    assert len(found) == 2 and not issues
-    revised = revise_rule(
-        SqlAlchemyUnitOfWork(factory), "pg-owner", value.id, 1,
-        {**payload, "effective_from": start + timedelta(days=7)},
-    )
-    assert revised.version == 2
+def test_tp026a_real_parent_work_type_and_ownership_in_postgres(postgres_engine):
+    """A leaf has a permanent owned parent, version CAS and no dated affiliation."""
+    from app.application.projects import create_work_type, rename_work_type
+    from app.application.schedule_scopes import create_scope
+    from app.domain.recurring_availability import RuleConflict
+    from app.infrastructure.models import WorkTypeRecord
+
+    factory = sessionmaker(bind=postgres_engine, autoflush=False, expire_on_commit=False)
+    owner = "pg-026a-leaf-" + str(uuid4())
+    parent = create_scope(SqlAlchemyUnitOfWork(factory), owner, "Travail")
+    focus = create_work_type(SqlAlchemyUnitOfWork(factory), "Focus", None, parent.id, owner)
+    with pytest.raises(ValueError, match="parent scope"):
+        create_work_type(SqlAlchemyUnitOfWork(factory), "Foreign", None,
+                         parent.id, "other-owner")
+    renamed = rename_work_type(SqlAlchemyUnitOfWork(factory), owner, focus.id,
+                               "Focus approfondi", None, 1)
+    assert renamed.scope_id == parent.id and renamed.version == 2
     with pytest.raises(RuleConflict):
-        revise_rule(
-            SqlAlchemyUnitOfWork(factory), "pg-owner", value.id, 1,
-            {**payload, "effective_from": start + timedelta(days=14)},
-        )
-    with postgres_engine.connect() as connection:
-        assert connection.scalar(text(
-            "SELECT COUNT(*) FROM recurring_availability_revisions WHERE rule_id = :id"
-        ), {"id": str(value.id)}) == 2
-        assert connection.scalar(text(
-            "SELECT COUNT(*) FROM history_events "
-            "WHERE entity_type = 'AVAILABILITY_RULE' AND entity_id = :id"
-        ), {"id": str(value.id)}) == 2
-
+        rename_work_type(SqlAlchemyUnitOfWork(factory), owner, focus.id,
+                         "Stale", None, 1)
+    with Session(postgres_engine) as session:
+        row = session.get(WorkTypeRecord, str(focus.id))
+        assert row.scope_id == str(parent.id)
+        assert row.name == "Focus approfondi"
+        assert row.version == 2
 
 
 def test_tp022b_exception_preview_persistence_and_audit_in_postgres(postgres_engine):
@@ -321,39 +301,28 @@ def test_tp022b_exception_preview_persistence_and_audit_in_postgres(postgres_eng
         ), {"id": str(made.id)}) == 2
 
 
-def test_tp023a_atomic_weekly_edit_on_private_postgres(postgres_engine):
-    """Multi-day split, idempotent receipt and temporal revision in PostgreSQL."""
-    from app.application.recurring_availability import create_rule, revise_rule
+
+def test_tp026a_atomic_parent_envelope_in_private_postgres(postgres_engine):
+    """A future GENERAL envelope belongs to a real parent, with idempotent confirm."""
+    from app.application.schedule_scopes import create_scope
     from app.application.weekly_schedule import (
         WeeklyDraft, Section, Slot, preview_weekly, confirm_weekly,
     )
-    from app.domain.recurring_availability import RuleKind, expand_rules
+    from app.domain.recurring_availability import RuleKind
+    from zoneinfo import ZoneInfo
 
     factory = sessionmaker(bind=postgres_engine, autoflush=False, expire_on_commit=False)
-    owner = "tp023a-pg-owner"
-    effect = datetime.now(__import__("zoneinfo").ZoneInfo("America/Toronto")).date() + timedelta(days=21)
-    while effect.weekday() != 0:
-        effect += timedelta(days=1)
-    fields = {
-        "effective_from": effect, "valid_until": None, "timezone_name": "America/Toronto",
-        "days_of_week": (0, 1, 2), "starts_at_local": "09:00",
-        "ends_at_local": "10:00", "kind": RuleKind.GENERAL,
-        "work_type_id": None, "mode": None, "enabled": True,
-        "start_fold": None, "end_fold": None,
-    }
-    original = create_rule(SqlAlchemyUnitOfWork(factory), owner, fields)
-    later = effect + timedelta(days=28)
-    revised = revise_rule(SqlAlchemyUnitOfWork(factory), owner, original.id, 1, {
-        **fields, "effective_from": later, "starts_at_local": "10:00",
-        "ends_at_local": "11:00",
-    })
+    owner = "tp026a-envelope-" + str(uuid4())
+    parent = create_scope(SqlAlchemyUnitOfWork(factory), owner, "Travail")
+    effect = datetime.now(ZoneInfo("America/Toronto")).date() + timedelta(days=21)
     draft = WeeklyDraft(
-        effect + timedelta(days=7), "America/Toronto",
-        (Section(1, RuleKind.GENERAL, None, (Slot("13:00", "14:00"),)),),
-        {str(original.id): revised.version},
+        effect, "America/Toronto",
+        (Section(effect.weekday(), RuleKind.GENERAL, None,
+                 (Slot("09:00", "10:00"),), parent.id),),
+        {},
     )
     token = preview_weekly(SqlAlchemyUnitOfWork(factory), owner, draft)
-    assert token["has_changes"] and len(token["derived_rule_ids"]) == 2
+    assert token["has_changes"]
     command_id = uuid4()
     receipt = confirm_weekly(SqlAlchemyUnitOfWork(factory), owner, draft,
                              command_id=command_id, fingerprint=token["fingerprint"],
@@ -364,76 +333,44 @@ def test_tp023a_atomic_weekly_edit_on_private_postgres(postgres_engine):
     assert receipt == replay
     with SqlAlchemyUnitOfWork(factory) as uow:
         rules = tuple(uow.recurring_availability.list_owner(owner))
-        assert len(rules) == 4
-        occurrences, problems = expand_rules(rules, later, later+timedelta(days=3))
-        assert not problems
-        assert len(occurrences) == 3
-        by_weekday = {occ.original_local_date.weekday(): occ for occ in occurrences}
-        assert {day: occ.starts_at.astimezone(
-            __import__("zoneinfo").ZoneInfo("America/Toronto")
-        ).hour for day, occ in by_weekday.items()} == {0: 10, 1: 13, 2: 10}
+        assert rules and all(rev.scope_id == parent.id
+                             for rule in rules for rev in rule.revisions)
     with Session(postgres_engine) as session:
         assert session.scalar(text(
             "SELECT COUNT(*) FROM weekly_schedule_commands WHERE owner_id = :owner"
         ), {"owner": owner}) == 1
-        assert session.scalar(text(
-            "SELECT COUNT(*) FROM recurring_availability_revisions "
-            "WHERE rule_id = :id AND supersedes_future"
-        ), {"id": str(original.id)}) == 1
 
 
-def test_tp024a_postgres_parent_owner_history_and_version_cas(postgres_engine):
-    """The real PG schema supports scope affiliation without touching WorkType IDs."""
-    from datetime import date, datetime, timedelta
-    from zoneinfo import ZoneInfo
-    from app.application.schedule_scopes import (
-        AffiliationDraft, create_scope, preview_affiliation, confirm_affiliation,
-    )
-    from app.domain import WorkType
+
+def test_tp026a_postgres_parent_owner_and_version_cas(postgres_engine):
+    """Rename preserves leaf parentage and rejects stale or foreign writes."""
+    from app.application.projects import create_work_type
+    from app.application.schedule_scopes import create_scope, update_scope
     from app.domain.recurring_availability import RuleConflict
-    from app.domain.schedule_scopes import compatibility_scope_id, effective_scope
 
-    owner = "test:tp024a:" + str(uuid4())
-    foreign_owner = "test:tp024a:" + str(uuid4())
     factory = sessionmaker(bind=postgres_engine, autoflush=False, expire_on_commit=False)
-    new_type = WorkType(name="TP024A-" + str(uuid4()))
-    with SqlAlchemyUnitOfWork(factory) as unit:
-        unit.work_types.add(new_type)
-        unit.commit()
-    scope = create_scope(SqlAlchemyUnitOfWork(factory), owner, "Travail")
-    assert scope.owner_id == owner
-    with SqlAlchemyUnitOfWork(factory) as unit:
-        assert unit.schedule_scopes.get(foreign_owner, scope.id) is None
-    day = datetime.now(ZoneInfo("America/Toronto")).date() + timedelta(days=3)
-    draft = AffiliationDraft(new_type.id, scope.id, day, "America/Toronto", 0, 1)
-    preview = preview_affiliation(SqlAlchemyUnitOfWork(factory), owner, draft)
-    cmd = uuid4()
-    confirmed = confirm_affiliation(
-        SqlAlchemyUnitOfWork(factory), owner, draft,
-        fingerprint=preview["fingerprint"], command_id=cmd,
-        confirmed=True, acknowledge_bookings=False,
-    )
-    assert confirmed["applied"] and confirmed["affiliation_version"] == 1
-    assert confirmed == confirm_affiliation(
-        SqlAlchemyUnitOfWork(factory), owner, draft,
-        fingerprint=preview["fingerprint"], command_id=cmd,
-        confirmed=True, acknowledge_bookings=False,
-    )
-    with SqlAlchemyUnitOfWork(factory) as unit:
-        history = unit.schedule_scopes.affiliations(owner)
-        assert len(history) == 1
-        assert effective_scope(new_type.id, day, history,
-                               compatibility_scope_id(owner)) == scope.id
-        assert effective_scope(new_type.id, day-timedelta(days=1), history,
-                               compatibility_scope_id(owner)) == compatibility_scope_id(owner)
-        assert unit.schedule_scopes.affiliations(foreign_owner) == ()
+    owner = "tp026a-scope-" + str(uuid4())
+    other = "tp026a-foreign-" + str(uuid4())
+    parent = create_scope(SqlAlchemyUnitOfWork(factory), owner, "Travail")
+    child = create_work_type(SqlAlchemyUnitOfWork(factory), "Planification", None,
+                             parent.id, owner)
+    with pytest.raises(LookupError):
+        update_scope(SqlAlchemyUnitOfWork(factory), other, parent.id, 1,
+                     "Tentative étrangère", "ACTIVE")
+    renamed = update_scope(SqlAlchemyUnitOfWork(factory), owner, parent.id, 1,
+                           "Professionnel", "ACTIVE")
+    assert renamed.version == 2 and renamed.id == parent.id
     with pytest.raises(RuleConflict):
-        preview_affiliation(SqlAlchemyUnitOfWork(factory), owner, draft)
+        update_scope(SqlAlchemyUnitOfWork(factory), owner, parent.id, 1,
+                     "Périmé", "ACTIVE")
+    with SqlAlchemyUnitOfWork(factory) as uow:
+        assert uow.work_types.get(child.id).scope_id == parent.id
+        assert not uow.schedule_scopes.list_owner(other)
 
 
 
-def test_tp025a_eligibility_storage_in_postgresql(postgres_engine):
-    """New opt-in series and CAS revisions work in the private PG schema."""
+def test_tp026a_eligibility_storage_in_postgresql(postgres_engine):
+    """Eligibility revisions belong to a typed WorkType under a real parent."""
     from app.domain.eligibility import (
         EligibilityConflict, EligibilityRevision, EligibilitySeries,
     )
@@ -442,11 +379,13 @@ def test_tp025a_eligibility_storage_in_postgresql(postgres_engine):
 
     scope, work_type, series_id = uuid4(), uuid4(), uuid4()
     with Session(postgres_engine) as session:
-        session.add(WorkTypeRecord(
-            id=str(work_type), name="TP-025A Focus", description=None))
         session.add(ScheduleScopeRecord(
             id=str(scope), owner_id="tp025a-owner", name="Travail",
-            version=1, state="ACTIVE", is_compatibility=False))
+            version=1, state="ACTIVE"))
+        session.flush()
+        session.add(WorkTypeRecord(
+            id=str(work_type), name="TP-026A Focus", description=None,
+            scope_id=str(scope), version=1))
         session.flush()
         repository = SqlEligibilityRepository(session)
         initial = EligibilityRevision(
@@ -465,3 +404,5 @@ def test_tp025a_eligibility_storage_in_postgresql(postgres_engine):
         with pytest.raises(EligibilityConflict):
             repository.append_revision("tp025a-owner", updated, expected_version=1)
         session.commit()
+
+
