@@ -127,7 +127,7 @@ def suggest_eligible_blocks(
                 "blocked": ("ALREADY_CONFIRMED" if task.id in already else
                             "UNCLASSIFIED_WORK_TYPE" if work_type is None else
                             "WORK_TYPE_WITHOUT_REAL_PARENT" if
-                                work_type not in (work_type_scopes or {}) else
+                                work_type_scopes is not None and work_type not in work_type_scopes else
                             "ESTIMATE_UNKNOWN" if estimate is None else None),
             })
         snapshot_tasks.append(task_detail)
@@ -154,7 +154,8 @@ def suggest_eligible_blocks(
         for minute in range(start, end):
             scope_choices = eligible.get(minute)
             matches = [] if scope_choices is None else [
-                v for v in scope_choices[1] if v.work_type_id == unit["type"]]
+                v for v in scope_choices[1] if v.work_type_id == unit["type"]
+                and (work_type_scopes is None or work_type_scopes.get(unit["type"]) == scope_choices[0])]
             if minute not in free or not matches:
                 break
             matching.append((scope_choices[0], matches[0]))
@@ -187,7 +188,9 @@ def suggest_eligible_blocks(
             if not unit["remaining"] or minute >= unit["due"] or not ready(unit):
                 continue
             for choice in choices:
-                if choice.work_type_id == unit["type"]:
+                if (choice.work_type_id == unit["type"] and
+                        (work_type_scopes is None or
+                         work_type_scopes.get(unit["type"]) == scope)):
                     competitors.append(((
                         protection[unit["protection"]],
                         choice.priority_rank if choice.priority_rank is not None else 10**9,

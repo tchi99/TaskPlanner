@@ -129,11 +129,15 @@ def _validate(draft: WeeklyDraft, uow: UnitOfWork, owner: str) -> dict:
     if draft.effective_from <= today:
         raise ValueError("weekly changes must take effect tomorrow or later (local civil date)")
     keys = {}
-    valid_types = {v.id for v in uow.work_types.list_all()}
+    valid_types = {v.id for v in uow.work_types.list_owner(owner)}
     for section in draft.sections:
         day = section.weekday
         if type(day) is not int or not 0 <= day <= 6:
             raise ValueError("weekday must be 0..6")
+        if section.kind is not RuleKind.GENERAL:
+            raise ValueError("only parent GENERAL envelopes can be edited here")
+        if section.scope_id is None:
+            raise ValueError("a real owned parent is required for each envelope")
         if section.kind is RuleKind.GENERAL and section.work_type_id is not None:
             raise ValueError("GENERAL section must use the NULL compartment")
         if section.kind is RuleKind.CATEGORIZED and section.work_type_id not in valid_types:

@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain import Project, ProjectStatus, ProtectionLevel, Task, TaskAggregate, TaskStatus, WorkType
 
@@ -94,6 +94,7 @@ class WorkTypeCreateRequest(BaseModel):
 
 
 class WorkTypeUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # scope_id is immutable
     name: str = Field(min_length=1, max_length=200)
     description: str | None = None
     expected_version: int = Field(ge=1)

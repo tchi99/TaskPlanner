@@ -21,7 +21,6 @@ from app.application.uow import UnitOfWork
 from app.domain.model import SegmentStatus, TaskStatus
 from app.domain.recurring_availability import AvailabilityMode
 from app.domain.time_blocks import ConfirmedTimeBlock
-from app.domain.schedule_scopes import compatibility_scope_id
 
 Decision = Literal["CANCEL", "MOVE", "KEEP"]
 
@@ -49,23 +48,19 @@ def _overlaps(a: datetime, b: datetime, c: datetime, d: datetime) -> bool:
     return _utc(a) < _utc(d) and _utc(c) < _utc(b)
 
 
-def _covered(candidate: ConfirmedTimeBlock, projection, compatibility_id=None) -> bool:
-    """Require the entire destination to be within compatible declarations."""
+def _covered(candidate: ConfirmedTimeBlock, projection) -> bool:
+    """MOVE requires one authorized permission on every UTC destination minute."""
+    if candidate.scope_id is None or candidate.work_type_id is None:
+        return False
+    if candidate.transferred_from is not None:
+        return False
     cursor = _utc(candidate.starts_at)
     limit = _utc(candidate.ends_at)
-    scope = candidate.scope_id or compatibility_id
-    legacy = [b for b in projection.projection.blocks
-              if scope is not None and b.scope_id == scope
-              and (b.work_type_id == candidate.work_type_id
-                   or (candidate.transferred_from is not None
-                       and b.work_type_id == candidate.transferred_from
-                       and b.mode is AvailabilityMode.PREFERRED))]
-    shared = [fragment for fragment in projection.eligibility.fragments
-              if scope is not None and fragment.scope_id == scope
-              and any(choice.work_type_id == candidate.work_type_id
-                      and not choice.exclusive for choice in fragment.choices)
-              and candidate.transferred_from is None]
-    spans = sorted((*legacy, *shared), key=lambda b: b.starts_at)
+    spans = sorted((fragment for fragment in projection.eligibility.fragments
+                    if fragment.scope_id == candidate.scope_id
+                    and any(choice.work_type_id == candidate.work_type_id
+                            and not choice.exclusive for choice in fragment.choices)),
+                   key=lambda fragment: fragment.starts_at)
     for span in spans:
         start, end = _utc(span.starts_at), _utc(span.ends_at)
         if start <= cursor < end:
@@ -159,8 +154,11 @@ def _prepare(
         }
         target = (source if target_week == week else
                   effective_week(uow, owner, target_week, zone_name))
-        if not _covered(replacement, target, compatibility_scope_id(owner)):
-            raise ValueError("replacement is not in compatible effective availability")
+        member = uow.work_types.get(work_type) if work_type is not None else None
+        if member is None or member.scope_id != replacement.scope_id:
+            raise ValueError("classify the booked work under its real parent before MOVE")
+        if not _covered(replacement, target):
+            raise ValueError("replacement is not admitted for the entire interval")
         _, _, _, bookings = _state(
             uow, owner, target_week, target_week + timedelta(days=7),
         )
