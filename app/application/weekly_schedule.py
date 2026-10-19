@@ -129,7 +129,6 @@ def _validate(draft: WeeklyDraft, uow: UnitOfWork, owner: str) -> dict:
     if draft.effective_from <= today:
         raise ValueError("weekly changes must take effect tomorrow or later (local civil date)")
     keys = {}
-    valid_types = {v.id for v in uow.work_types.list_owner(owner)}
     for section in draft.sections:
         day = section.weekday
         if type(day) is not int or not 0 <= day <= 6:
@@ -138,29 +137,12 @@ def _validate(draft: WeeklyDraft, uow: UnitOfWork, owner: str) -> dict:
             raise ValueError("only parent GENERAL envelopes can be edited here")
         if section.scope_id is None:
             raise ValueError("a real owned parent is required for each envelope")
-        if section.kind is RuleKind.GENERAL and section.work_type_id is not None:
-            raise ValueError("GENERAL section must use the NULL compartment")
-        if section.kind is RuleKind.CATEGORIZED and section.work_type_id not in valid_types:
-            raise ValueError("categorized section must reference an existing WorkType")
-        if section.scope_id is None and section.kind is RuleKind.CATEGORIZED and section.slots:
-            if effective_scope(
-                section.work_type_id, draft.effective_from,
-                uow.schedule_scopes.affiliations(owner),
-                compatibility_scope_id(owner),
-            ) != compatibility_scope_id(owner):
-                raise ValueError("legacy cells cannot create categorized intervals outside compatibility")
+        if section.work_type_id is not None:
+            raise ValueError("GENERAL section must not declare a work type")
         if section.scope_id is not None:
             scope = uow.schedule_scopes.get(owner, section.scope_id)
             if scope is None or scope.state != "ACTIVE":
                 raise ValueError("section scope is not active or owned by this user")
-            if section.kind is RuleKind.CATEGORIZED:
-                member = effective_scope(
-                    section.work_type_id, draft.effective_from,
-                    uow.schedule_scopes.affiliations(owner),
-                    compatibility_scope_id(owner),
-                )
-                if member != section.scope_id:
-                    raise ValueError("WorkType is not attached to this scope at the effective date")
         key = _key(day, section.kind, section.work_type_id,
                    draft.timezone_name, section.scope_id)
         if key in keys:
@@ -174,10 +156,8 @@ def _validate(draft: WeeklyDraft, uow: UnitOfWork, owner: str) -> dict:
             finish = _wall_clock(slot.ends_at_local, end=True)
             if begin >= finish or begin < prev_end:
                 raise ValueError("intervals in one cell must be positive and disjoint")
-            if section.kind is RuleKind.GENERAL and slot.mode is not None:
-                raise ValueError("GENERAL slots cannot be PROTECTED or PREFERRED")
-            if section.kind is RuleKind.CATEGORIZED and slot.mode is None:
-                raise ValueError("categorized slots need PROTECTED or PREFERRED")
+            if slot.mode is not None:
+                raise ValueError("GENERAL slots cannot use old PROTECTED/PREFERRED modes")
             if slot.start_fold not in (None, 0, 1) or slot.end_fold not in (None, 0, 1):
                 raise ValueError("DST fold must be 0 or 1")
             prev_end = finish
