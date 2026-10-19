@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.domain.schedule_scopes import compatibility_scope_id
+
 from app.domain.time_blocks import ConfirmedTimeBlock
 from app.infrastructure import models  # noqa: F401
 from app.infrastructure.models import HistoryEventRecord
@@ -22,6 +22,7 @@ OWNER = "urn:taskplanner:local"
 ZONE = "America/Toronto"
 DAY = date(2027, 1, 5)
 BASE = "/api/availability/eligibility-edits"
+SCOPE_BY_TYPE = {}  # IDs are unique per isolated test database.
 
 
 class Calendar:
@@ -39,9 +40,6 @@ def runtime():
     app.dependency_overrides[get_calendar_reader] = lambda: Calendar()
     try:
         with TestClient(app) as client:
-            with SqlAlchemyUnitOfWork(factory) as uow:
-                uow.schedule_scopes.ensure_compatibility(OWNER)
-                uow.commit()
             yield client, factory
     finally:
         app.dependency_overrides.clear()
@@ -49,24 +47,35 @@ def runtime():
 
 
 def setup(client):
-    general = client.post("/api/availability/rules", json={
-        "effective_from": "2027-01-04", "timezone_name": ZONE,
-        "days_of_week": [1], "starts_at_local": "10:00",
-        "ends_at_local": "12:00", "kind": "GENERAL",
-    })
-    assert general.status_code == 201, general.text
+    parent = client.post("/api/schedule-scopes", json={"name": "Travail"})
+    assert parent.status_code == 201, parent.text
+    scope = parent.json()["id"]
+    body = {"effective_from": "2027-01-04", "timezone_name": ZONE,
+            "expected_versions": {}, "sections": [
+                {"weekday": 1, "kind": "GENERAL", "scope_id": scope,
+                 "work_type_id": None,
+                 "slots": [{"starts_at_local": "10:00", "ends_at_local": "12:00"}]}]}
+    proposed = client.post("/api/availability/weekly-schedule/preview", json=body)
+    assert proposed.status_code == 200, proposed.text
+    general = client.post("/api/availability/weekly-schedule/confirm", json={
+        **body, "fingerprint": proposed.json()["fingerprint"],
+        "command_id": str(uuid4()), "confirmed": True})
+    assert general.status_code == 200, general.text
     types = []
     for name in ("Focus", "Reunions"):
-        result = client.post("/api/work-types", json={"name": name})
+        result = client.post("/api/work-types", json={
+            "name": name, "scope_id": scope})
         assert result.status_code == 201, result.text
-        types.append(result.json()["id"])
+        ident = result.json()["id"]
+        SCOPE_BY_TYPE[ident] = scope
+        types.append(ident)
     return types
 
 
 def draft(work_type_id, **changes):
     value = dict(
         draft_id=str(uuid4()), series_id=None, legacy_rule_id=None,
-        scope_id=str(compatibility_scope_id(OWNER)), work_type_id=work_type_id,
+        scope_id=SCOPE_BY_TYPE[work_type_id], work_type_id=work_type_id,
         expected_version=0, expected_legacy_version=None,
         effective_from=DAY.isoformat(), timezone_name=ZONE, days_of_week=[1],
         starts_at_local="10:00", ends_at_local="12:00",
@@ -130,49 +139,28 @@ def test_stale_priority_only_edit_and_owned_revision(runtime):
     assert client.get(BASE + "/series/" + str(uuid4())).status_code == 404
 
 
-def test_opt_in_from_preferred_preserves_legacy_and_rejects_protected(runtime):
-    client, factory = runtime
+def test_legacy_conversion_is_rejected_but_direct_shared_permissions_work(runtime):
+    client, _ = runtime
     focus, meeting = setup(client)
     legacy = client.post("/api/availability/rules", json={
         "effective_from": "2027-01-04", "timezone_name": ZONE,
         "days_of_week": [1], "starts_at_local": "10:00",
         "ends_at_local": "12:00", "kind": "CATEGORIZED",
         "work_type_id": focus, "mode": "PREFERRED",
-    }).json()
-    proposed = draft(focus, legacy_rule_id=legacy["id"],
-                     expected_legacy_version=legacy["version"])
-    outcome = preview(client, proposed)
-    assert not outcome["blocking_issues"], outcome
-    accepted = confirm(client, proposed, outcome)
-    assert accepted.status_code == 200, accepted.text
-    with factory() as session:
-        audit = session.execute(select(
-            HistoryEventRecord.entity_type, HistoryEventRecord.entity_id,
-        ).where(HistoryEventRecord.correlation_id == accepted.json()["correlation_id"])
-          .order_by(HistoryEventRecord.sequence)).all()
-    assert [tuple(row) for row in audit] == [
-        ("AVAILABILITY_RULE", legacy["id"]),
-        ("ELIGIBILITY_SERIES", accepted.json()["series_id"]),
-    ]
-    after = client.get("/api/availability/rules/" + legacy["id"]).json()
-    assert after["version"] == 2 and after["revisions"][0]["mode"] == "PREFERRED"
-    assert after["revisions"][-1]["supersedes_future"] is True
-    future = draft(meeting)
-    assert confirm(client, future, preview(client, future)).status_code == 200
-    book = client.get("/api/availability/eligibility-week", params={
-        "week_start": "2027-01-04", "timezone_name": ZONE}).json()
-    assert any(len(fragment["choices"]) == 2 for fragment in book["fragments"])
-    protected = client.post("/api/availability/rules", json={
-        "effective_from": "2027-01-04", "timezone_name": ZONE,
-        "days_of_week": [1], "starts_at_local": "10:00",
-        "ends_at_local": "12:00", "kind": "CATEGORIZED",
-        "work_type_id": meeting, "mode": "PROTECTED",
     })
-    assert protected.status_code == 201, protected.text
-    rejected = client.post(BASE + "/preview", json=draft(
-        meeting, legacy_rule_id=protected.json()["id"],
-        expected_legacy_version=1))
-    assert rejected.status_code == 422
+    assert legacy.status_code == 422
+    obsolete = client.post(BASE + "/preview", json=draft(
+        focus, legacy_rule_id=str(uuid4()), expected_legacy_version=1))
+    assert obsolete.status_code == 422
+    for typ in (focus, meeting):
+        value = draft(typ)
+        result = confirm(client, value, preview(client, value))
+        assert result.status_code == 200, result.text
+    week = client.get("/api/availability/eligibility-week", params={
+        "week_start": "2027-01-04", "timezone_name": ZONE})
+    assert week.status_code == 200, week.text
+    assert week.json()["physical_minutes"] == 120
+    assert sorted(item["minutes"] for item in week.json()["potential_minutes"]) == [120, 120]
 
 
 def test_booking_ack_and_future_booking_persistence(runtime):
@@ -186,7 +174,7 @@ def test_booking_ack_and_future_booking_persistence(runtime):
             work_type_id=UUID(focus),
             starts_at=datetime(2027, 1, 5, 10, tzinfo=ZoneInfo(ZONE)),
             ends_at=datetime(2027, 1, 5, 11, tzinfo=ZoneInfo(ZONE)),
-            scope_id=compatibility_scope_id(OWNER),
+            scope_id=UUID(SCOPE_BY_TYPE[focus]),
         )
         uow.time_blocks.add(booking)
         uow.commit()

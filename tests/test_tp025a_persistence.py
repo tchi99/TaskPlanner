@@ -26,8 +26,9 @@ def test_repository_cas_revisions_and_exception_audit():
     with Session(engine) as session:
         session.add(ScheduleScopeRecord(
             id=str(scope), owner_id=owner, name="Travail", state="ACTIVE",
-            version=1, is_compatibility=False))
-        session.add(WorkTypeRecord(id=str(work_type), name="Focus", description=None))
+            version=1))
+        session.add(WorkTypeRecord(id=str(work_type), name="Focus", description=None,
+                                    scope_id=str(scope), version=1))
         session.flush()
         repo = SqlEligibilityRepository(session)
         rev = EligibilityRevision(
