@@ -4,12 +4,19 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
+try:
+    from fastapi.routing import iter_route_contexts
+except ImportError:
+    # FastAPI <0.137.2 exposes routes directly in app.routes.
+    def iter_route_contexts(routes):
+        return routes
+
 from app.main import app
 from app.server.eligibility_edits import DraftInput
 
 
 def test_legacy_mutation_routes_are_absent_but_read_contracts_survive():
-    routes = {(method, route.path) for route in app.routes
+    routes = {(method, route.path) for route in iter_route_contexts(app.routes)
               for method in (getattr(route, "methods", None) or set())}
     assert ("POST", "/api/capacity/weeks/{week_start}/blocks") not in routes
     assert ("DELETE", "/api/capacity/weeks/{week_start}/blocks/{block_id}") not in routes
