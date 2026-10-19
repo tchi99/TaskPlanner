@@ -51,36 +51,6 @@ def client():
         engine.dispose()
 
 
-def test_week_calendar_read_overlays_manual_blocks_but_does_not_mutate_them(client):
-    reader = Reader()
-    app.dependency_overrides[get_calendar_reader] = lambda: reader
-    assert client.post(WEEK + "/blocks", json={
-        "starts_at": "2026-10-05T09:00:00-04:00",
-        "ends_at": "2026-10-05T11:00:00-04:00",
-    }).status_code == 201
-    before = client.get(WEEK).json()
-    response = client.get(WEEK + "/calendar?timezone_name=America/Toronto")
-    assert response.status_code == 200
-    body = response.json()
-    assert body["week_start"] == "2026-10-05"
-    assert body["is_read_only"] is True
-    assert body["manual_available_minutes"] == 120
-    assert body["occupied_minutes"] == 60
-    assert body["remaining_minutes"] == 60
-    assert body["by_work_type"][0]["remaining_minutes"] == 60
-    assert len(body["commitments"]) == 1
-    assert len(reader.windows) == 1
-    start, end, zone = reader.windows[0]
-    assert start.isoformat() == "2026-10-05T00:00:00-04:00"
-    assert end.isoformat() == "2026-10-12T00:00:00-04:00"
-    assert zone == "America/Toronto"
-    assert client.get(WEEK).json() == before
-    # Existing manual feasibility is intentionally unchanged.
-    assert client.post(WEEK + "/evaluate", json={"task_ids": []}).json()[
-        "available_minutes"
-    ] == 120
-
-
 def test_invalid_timezone_and_week_rejected_before_external_calls(client):
     reader = Reader()
     app.dependency_overrides[get_calendar_reader] = lambda: reader

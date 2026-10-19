@@ -123,21 +123,6 @@ def test_conflicting_rank_same_type_is_diagnostic_not_uuid_tiebreak():
     assert not p.potential_minutes
 
 
-def test_legacy_exclusive_is_not_reinterpreted_as_shared():
-    scope = PARENT
-    focus, meetings = uuid4(), uuid4()
-    p = projection(
-        (legacy(scope), legacy(scope, kind=RuleKind.CATEGORIZED,
-                               work_type=focus, mode=AvailabilityMode.PROTECTED)),
-        (series(scope, meetings),),
-    )
-    assert "ELIGIBILITY_OVER_LEGACY_EXCLUSIVE" in {v.code for v in p.issues}
-    assert dict(p.potential_minutes) == {focus: 480}
-    assert all(f.choices[0].exclusive for f in p.fragments)
-    assert all(f.choices[0].legacy_mode is AvailabilityMode.PROTECTED
-               for f in p.fragments)
-
-
 def test_scope_affiliation_and_missing_envelope_are_diagnostics():
     scope = uuid4()
     focus = uuid4()
@@ -237,3 +222,12 @@ def test_move_one_permission_and_keep_the_other_original():
     assert fragments[0].starts_at.hour == 18
     assert dict(result.potential_minutes) == {focus: 120, meetings: 120}
 
+def test_parentless_historical_exclusive_work_type_is_rejected_explicitly():
+    scope = PARENT
+    focus = uuid4()
+    with pytest.raises(ValueError, match="real parent"):
+        projection(
+            (legacy(scope), legacy(scope, kind=RuleKind.CATEGORIZED,
+                                   work_type=focus, mode=AvailabilityMode.PROTECTED)),
+            (series(scope, uuid4()),),
+        )

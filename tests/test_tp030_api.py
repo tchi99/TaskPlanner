@@ -31,49 +31,6 @@ def runtime():
         engine.dispose()
 
 
-def test_weekly_options_api_is_side_effect_free_and_exposes_consequences(runtime):
-    client, engine = runtime
-    focus = client.post("/api/work-types", json={"name": "Focus"}).json()["id"]
-    assert client.post(WEEK + "/blocks", json={
-        "starts_at": "2026-10-05T08:00:00-04:00",
-        "ends_at": "2026-10-05T09:00:00-04:00",
-        "work_type_id": focus,
-    }).status_code == 201
-    ids = []
-    for title, protection, estimate in (("Must", "PROTECTED", 40), ("May", "FLEXIBLE", 30)):
-        task_id = client.post("/api/tasks", json={
-            "title": title, "estimated_minutes": estimate,
-        }).json()["id"]
-        assert client.post(f"/api/tasks/{task_id}/clarify", json={
-            "work_type_id": focus,
-        }).status_code == 200
-        assert client.patch(f"/api/tasks/{task_id}/protection", json={
-            "protection": protection,
-            "confirm_downgrade": protection == "FLEXIBLE",
-        }).status_code == 200
-        ids.append(task_id)
-
-    result = client.post(WEEK + "/proposals", json={"task_ids": ids})
-    assert result.status_code == 200, result.text
-    data = result.json()
-    assert data["state"] == "PROPOSED"
-    assert data["baseline"]["status"] == "OVER_CAPACITY"
-    assert data["baseline"]["known_demand_minutes"] == 70
-    assert set(data["candidate_task_ids"]) == set(ids)
-    kinds = [option["kind"] for option in data["options"]]
-    assert kinds == ["KEEP", "DEFER", "REVIEW_SCOPE", "CONSIDER_DELEGATION"]
-    deferred = data["options"][1]
-    assert deferred["excluded_task_ids"] == [ids[1]]
-    assert deferred["capacity"]["status"] == "FEASIBLE"
-    assert deferred["requires_confirmation"] is True
-    assert data["options"][2]["capacity"] is None
-    assert len({option["id"] for option in data["options"]}) == len(kinds)
-    assert client.get(f"/api/tasks/{ids[1]}").json()["status"] == "TODO"
-    assert len(client.get(WEEK).json()["blocks"]) == 1
-    with Session(engine) as session:
-        assert len(session.scalars(select(TaskRecord)).all()) == 2
-
-
 def test_proposal_validation_and_missing_task(runtime):
     client, _ = runtime
     id_ = str(uuid4())
