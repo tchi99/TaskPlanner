@@ -24,7 +24,11 @@ def test_project_requires_a_title() -> None:
 
 
 def test_work_type_is_user_defined_domain_data() -> None:
-    work_type = WorkType(name="Deep work", description="Focused work")
+    parent_id = uuid4()
+    work_type = WorkType(name="Deep work", scope_id=parent_id, description="Focused work")
+    assert work_type.scope_id == parent_id
+    with pytest.raises(TypeError):
+        WorkType(name="Missing parent")
     assert work_type.name == "Deep work"
 
 

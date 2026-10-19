@@ -32,6 +32,12 @@ def db():
         engine.dispose()
 
 
+def _create_owned_type(client, name):
+    scope = client.post("/api/schedule-scopes", json={"name": f"Parent-{uuid4()}"})
+    assert scope.status_code == 201, scope.text
+    return client.post("/api/work-types", json={"name": name, "scope_id": scope.json()["id"]})
+
+
 def test_projects_work_types_and_unassigned_tasks_are_durable(db):
     engine, _ = db
     with TestClient(app) as client:
@@ -39,7 +45,7 @@ def test_projects_work_types_and_unassigned_tasks_are_durable(db):
         assert task["project_id"] is None
         assert task["work_type_id"] is None
         project = client.post("/api/projects", json={"title": "  Build  "})
-        work_type = client.post("/api/work-types", json={"name": "Deep work"})
+        work_type = _create_owned_type(client, "Deep work")
         assert project.status_code == 201
         assert work_type.status_code == 201
         project_id = project.json()["id"]
@@ -63,7 +69,7 @@ def test_clarification_enriches_capture_without_losing_identity_and_logs_one_com
             "title": "Initial", "notes": "Private original", "estimated_minutes": 30
         }).json()
         project_id = client.post("/api/projects", json={"title": "P"}).json()["id"]
-        work_type_id = client.post("/api/work-types", json={"name": "Focus"}).json()["id"]
+        work_type_id = _create_owned_type(client, "Focus").json()["id"]
         clarified = client.post(f"/api/tasks/{capture['id']}/clarify", json={
             "title": "  Specified  ",
             "notes": "Private enriched",
