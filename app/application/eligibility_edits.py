@@ -5,7 +5,7 @@ Neither preview nor confirm touches confirmed bookings or Google Calendar.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from hashlib import sha256
 import json
@@ -20,12 +20,10 @@ from app.domain.eligibility import (
     EligibilityConflict, EligibilityRevision, EligibilitySeries,
 )
 from app.domain.eligibility_projection import project_eligibility, reconcile_booking_issues
-from app.domain.recurring_availability import (
-    AvailabilityMode, RecurringAvailabilityRule, RuleConflict, RuleKind,
-)
+from app.domain.recurring_availability import RuleConflict
 from app.domain.schedule_scopes import compatibility_scope_id, effective_scope
 
-ALGORITHM = "TP-025D/contextual-edit-v1"
+ALGORITHM = "TP-026C/contextual-edit-v2"
 _BLOCKING = {
     "ELIGIBILITY_OUTSIDE_PHYSICAL_ENVELOPE",
     "ELIGIBILITY_OVER_LEGACY_EXCLUSIVE",
@@ -43,11 +41,9 @@ _BLOCKING = {
 class EligibilityDraft:
     draft_id: UUID
     series_id: UUID | None
-    legacy_rule_id: UUID | None
     scope_id: UUID
     work_type_id: UUID
     expected_version: int  # zero for new series
-    expected_legacy_version: int | None
     effective_from: date
     timezone_name: str
     days_of_week: tuple[int, ...]
@@ -84,8 +80,6 @@ def read_series(uow: UnitOfWork, owner: str, identifier: UUID) -> dict:
 
 
 def _validate(uow: UnitOfWork, owner: str, draft: EligibilityDraft):
-    if draft.legacy_rule_id is not None or draft.expected_legacy_version is not None:
-        raise ValueError("legacy rule conversion is not supported by TP-026")
     try:
         zone = ZoneInfo(draft.timezone_name)
     except (ValueError, TypeError, ZoneInfoNotFoundError) as exc:
@@ -116,24 +110,6 @@ def _validate(uow: UnitOfWork, owner: str, draft: EligibilityDraft):
             raise ValueError("series parent and work type cannot be changed")
     elif draft.expected_version != 0:
         raise ValueError("new eligibility series requires expected_version 0")
-    legacy = None
-    if draft.legacy_rule_id is not None:
-        legacy = uow.recurring_availability.get(draft.legacy_rule_id, owner)
-        if legacy is None:
-            raise LookupError("legacy series not found")
-        if legacy.version != draft.expected_legacy_version:
-            raise RuleConflict("legacy rule version changed; preview again")
-        active = [r for r in legacy.revisions if r.effective_from <= draft.effective_from]
-        if not active or any(r.supersedes_future for r in active):
-            raise ValueError("legacy series is inactive at cutover")
-        rev = max(active, key=lambda r: (r.effective_from, r.number))
-        if (not rev.enabled
-                or (rev.valid_until is not None and draft.effective_from >= rev.valid_until)
-                or rev.kind is not RuleKind.CATEGORIZED
-                or rev.mode is not AvailabilityMode.PREFERRED
-                or rev.work_type_id != draft.work_type_id
-                or (rev.scope_id or compatibility_scope_id(owner)) != draft.scope_id):
-            raise ValueError("only matching exclusive PREFERRED rules can opt in; PROTECTED is never converted")
     number = current.version + 1 if current else 1
     revision = EligibilityRevision(
         new_id, number, draft.effective_from, None, draft.timezone_name,
@@ -142,7 +118,7 @@ def _validate(uow: UnitOfWork, owner: str, draft: EligibilityDraft):
     )
     series = EligibilitySeries(new_id, owner, draft.scope_id, draft.work_type_id,
                                number, (*current.revisions, revision) if current else (revision,))
-    return current, series, legacy
+    return current, series
 
 
 def _projection(rules, exceptions, manual, confirmed, series, permission_exceptions,
@@ -161,7 +137,7 @@ def _issue_identity(issue):
 
 
 def _plan(uow: UnitOfWork, owner: str, draft: EligibilityDraft):
-    existing, edited, legacy = _validate(uow, owner, draft)
+    existing, edited = _validate(uow, owner, draft)
     start, end = draft.effective_from, draft.effective_from + timedelta(days=93)
     rules, exceptions, manual, confirmed = _state(uow, owner, start, end)
     all_bookings = tuple(uow.time_blocks.list_all_confirmed())
@@ -170,32 +146,16 @@ def _plan(uow: UnitOfWork, owner: str, draft: EligibilityDraft):
     affiliations = tuple(uow.schedule_scopes.affiliations(owner))
     scopes = tuple(uow.schedule_scopes.list_owner(owner))
     compat = compatibility_scope_id(owner)
-    future_legacy_exceptions = [
-        e for e in exceptions if legacy is not None and e.enabled
-        and e.rule_id == legacy.id and e.original_local_date is not None
-        and e.original_local_date >= draft.effective_from
-    ]
     future_permission_exceptions = [
         e for e in permission_exceptions if existing is not None and e.enabled
         and e.series_id == existing.id and e.original_local_date >= draft.effective_from
     ]
-    revised_rules = rules
-    terminal = None
-    if legacy is not None:
-        terminal = replace(legacy.revisions[-1], number=legacy.version + 1,
-                           effective_from=draft.effective_from, valid_until=None,
-                           enabled=False, supersedes_future=True)
-        revised_rules = tuple(
-            RecurringAvailabilityRule(r.id, r.owner_id, r.version + 1,
-                                      (*r.revisions, terminal)) if r.id == legacy.id else r
-            for r in rules
-        )
     revised_series = tuple(v for v in series if v.id != edited.id) if existing else series
     revised_series += (edited,)
     before = _projection(rules, exceptions, manual, confirmed, series,
                          permission_exceptions, start, end, draft.timezone_name,
                          compat, affiliations)
-    after = _projection(revised_rules, exceptions, manual, confirmed, revised_series,
+    after = _projection(rules, exceptions, manual, confirmed, revised_series,
                         permission_exceptions, start, end, draft.timezone_name,
                         compat, affiliations)
     previous = {_issue_identity(issue) for projection in before for issue in projection.issues}
@@ -217,8 +177,6 @@ def _plan(uow: UnitOfWork, owner: str, draft: EligibilityDraft):
     } for b in all_bookings if b.starts_at.astimezone(ZoneInfo(draft.timezone_name)).date() >= draft.effective_from
        and (b.scope_id or compat) == draft.scope_id]
     blocked = list(new_issues) + list(new_civil)
-    if future_legacy_exceptions:
-        blocked.append("UNRESOLVED_LEGACY_EXCEPTIONS")
     if future_permission_exceptions:
         blocked.append("UNRESOLVED_ELIGIBILITY_EXCEPTIONS")
     state = {
@@ -250,7 +208,7 @@ def _plan(uow: UnitOfWork, owner: str, draft: EligibilityDraft):
             "Google Calendar reste non vérifié et en lecture seule.",
         ],
     }
-    return output, existing, edited, legacy, terminal
+    return output, existing, edited
 
 
 def preview_edit(uow: UnitOfWork, owner: str, draft: EligibilityDraft) -> dict:
@@ -272,7 +230,7 @@ def confirm_edit(uow: UnitOfWork, owner: str, draft: EligibilityDraft, *,
             if receipt.payload_hash != payload_hash:
                 raise RuleConflict("command_id reused with different eligibility content")
             return receipt.result
-        preview, existing, edited, legacy, terminal = _plan(uow, owner, draft)
+        preview, existing, edited = _plan(uow, owner, draft)
         if preview["fingerprint"] != fingerprint:
             raise RuleConflict("eligibility preview is stale; preview again")
         if preview["blocking_issues"]:
@@ -280,23 +238,15 @@ def confirm_edit(uow: UnitOfWork, owner: str, draft: EligibilityDraft, *,
         if preview["booking_inventory"] and not acknowledge_bookings:
             raise ValueError("explicit acknowledgement of future bookings is required")
         correlation = uuid4()
-        if legacy is not None:
-            assert terminal is not None
-            uow.recurring_availability.append_revision(
-                terminal, expected_version=legacy.version)
-            uow.history.append(_event(legacy.id, correlation, "AVAILABILITY_RULE_CHANGED",
-                {"operation": "EXPLICIT_SHARED_CUTOVER", "effective_from": str(draft.effective_from),
-                 "preserved_legacy_mode": "PREFERRED"}, entity_type="AVAILABILITY_RULE"))
         if existing is None:
             uow.eligibility.add(edited)
         else:
             uow.eligibility.append_revision(owner, edited.revisions[-1],
                                              expected_version=existing.version)
         uow.history.append(_event(edited.id, correlation, "ELIGIBILITY_SERIES_CHANGED",
-            {"operation": "CUTOVER" if legacy else "REVISE" if existing else "CREATE",
+            {"operation": "REVISE" if existing else "CREATE",
              "version": edited.version, "effective_from": str(draft.effective_from),
-             "priority_rank": draft.priority_rank, "scope_id": str(draft.scope_id),
-             "legacy_rule_id": str(legacy.id) if legacy else None}))
+             "priority_rank": draft.priority_rank, "scope_id": str(draft.scope_id)}))
         result = {"applied": True, "series_id": str(edited.id), "calendar_written": False,
                   "correlation_id": str(correlation), "command_id": str(command_id)}
         uow.weekly_commands.add(owner, command_id, payload_hash, result)
