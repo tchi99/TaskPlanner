@@ -3,7 +3,7 @@ from datetime import date
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.application.eligibility_edits import (
     EligibilityDraft, read_series, preview_edit, confirm_edit,
@@ -20,13 +20,13 @@ router = APIRouter(prefix="/api/availability/eligibility-edits",
 
 
 class DraftInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     draft_id: UUID
     series_id: UUID | None = None
-    legacy_rule_id: UUID | None = None
     scope_id: UUID
     work_type_id: UUID
     expected_version: int = Field(ge=0)
-    expected_legacy_version: int | None = Field(default=None, ge=1)
     effective_from: date
     timezone_name: str = Field(min_length=1, max_length=100)
     days_of_week: tuple[int, ...]

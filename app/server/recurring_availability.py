@@ -1,13 +1,11 @@
-"""API for recurring declarations (not the effective availability projection)."""
+"""Read-only physical envelopes and occurrences; mutations use weekly preview/confirm."""
 from datetime import date, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, Field, model_validator
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
 
-from app.application.recurring_availability import (
-    create_rule, get_rule, list_rules, read_occurrences, revise_rule,
-)
+from app.application.recurring_availability import get_rule, list_rules, read_occurrences
 from app.application.uow import UnitOfWork
 from app.domain.recurring_availability import (
     AvailabilityMode, RecurringAvailabilityRule, RuleConflict, RuleKind,
@@ -32,7 +30,8 @@ def _run(action):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-class RuleSettings(BaseModel):
+class RevisionResponse(BaseModel):
+    number: int
     effective_from: date
     valid_until: date | None = None
     timezone_name: str
@@ -43,27 +42,8 @@ class RuleSettings(BaseModel):
     work_type_id: UUID | None = None
     mode: AvailabilityMode | None = None
     enabled: bool = True
-    start_fold: int | None = Field(default=None, ge=0, le=1)
-    end_fold: int | None = Field(default=None, ge=0, le=1)
-
-    @model_validator(mode="after")
-    def default_preference(self):
-        if self.kind is RuleKind.CATEGORIZED and self.mode is None:
-            self.mode = AvailabilityMode.PREFERRED
-        return self
-
-    def fields(self) -> dict:
-        result = self.model_dump()
-        result["days_of_week"] = tuple(sorted(result["days_of_week"]))
-        return result
-
-
-class ReviseRuleRequest(RuleSettings):
-    expected_version: int = Field(ge=1)
-
-
-class RevisionResponse(RuleSettings):
-    number: int
+    start_fold: int | None = None
+    end_fold: int | None = None
     supersedes_future: bool = False
 
 
@@ -146,15 +126,6 @@ def all_rules(request: Request, uow: UnitOfWork = Depends(get_uow)) -> list[Rule
             for value in _run(lambda: list_rules(uow, _owner(request)))]
 
 
-@router.post("", response_model=RuleResponse, status_code=status.HTTP_201_CREATED)
-def add_rule(
-    request: Request, payload: RuleSettings, uow: UnitOfWork = Depends(get_uow),
-) -> RuleResponse:
-    return RuleResponse.from_domain(_run(lambda: create_rule(
-        uow, _owner(request), payload.fields(),
-    )))
-
-
 @router.get("/{rule_id}", response_model=RuleResponse)
 def one_rule(
     rule_id: UUID, request: Request, uow: UnitOfWork = Depends(get_uow),
@@ -164,25 +135,3 @@ def one_rule(
     )))
 
 
-@router.patch("/{rule_id}", response_model=RuleResponse)
-def change_rule(
-    rule_id: UUID, request: Request, payload: ReviseRuleRequest,
-    uow: UnitOfWork = Depends(get_uow),
-) -> RuleResponse:
-    fields = payload.fields()
-    fields.pop("expected_version", None)
-    return RuleResponse.from_domain(_run(lambda: revise_rule(
-        uow, _owner(request), rule_id, payload.expected_version, fields,
-    )))
-
-
-@router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
-def disable_rule(
-    rule_id: UUID, request: Request,
-    expected_version: int = Query(ge=1), effective_from: date = Query(),
-    uow: UnitOfWork = Depends(get_uow),
-) -> None:
-    _run(lambda: revise_rule(
-        uow, _owner(request), rule_id, expected_version, None,
-        disable_from=effective_from,
-    ))
