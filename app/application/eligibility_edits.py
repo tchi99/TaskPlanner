@@ -84,8 +84,8 @@ def read_series(uow: UnitOfWork, owner: str, identifier: UUID) -> dict:
 
 
 def _validate(uow: UnitOfWork, owner: str, draft: EligibilityDraft):
-    if draft.series_id is not None and draft.legacy_rule_id is not None:
-        raise ValueError("select a shared series or an exclusive legacy series, not both")
+    if draft.legacy_rule_id is not None or draft.expected_legacy_version is not None:
+        raise ValueError("legacy rule conversion is not supported by TP-026")
     try:
         zone = ZoneInfo(draft.timezone_name)
     except (ValueError, TypeError, ZoneInfoNotFoundError) as exc:

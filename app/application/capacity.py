@@ -30,6 +30,7 @@ def add_block(
     ends_at: datetime,
     work_type_id: UUID | None = None,
 ) -> AvailabilityBlock:
+    raise ValueError("legacy manual capacity writes were removed; configure a parent envelope")
     block = AvailabilityBlock(
         week_start=week_start,
         starts_at=starts_at,
@@ -78,10 +79,6 @@ def evaluate_selection(
             if aggregate is None:
                 raise LookupError(f"task {task_id} not found")
             aggregates.append(aggregate)
-        if any(not choice.exclusive for fragment in availability.eligibility.fragments
-               for choice in fragment.choices):
-            return evaluate_eligibility_week(
-                week_start, timezone_name, blocks, availability.eligibility,
-                aggregates,
-            )
-        return evaluate_week(week_start, blocks, aggregates)
+        return evaluate_eligibility_week(
+            week_start, timezone_name, blocks, availability.eligibility, aggregates,
+        )

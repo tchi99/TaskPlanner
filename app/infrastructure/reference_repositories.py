@@ -49,33 +49,46 @@ class SqlWorkTypeRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
+    @staticmethod
+    def _domain(row: WorkTypeRecord) -> WorkType:
+        return WorkType(id=UUID(row.id), name=row.name, description=row.description,
+                        scope_id=UUID(row.scope_id), version=row.version)
+
     def add(self, work_type: WorkType) -> WorkType:
-        self._session.add(
-            WorkTypeRecord(
-                id=str(work_type.id),
-                name=work_type.name,
-                description=work_type.description,
-            )
-        )
+        self._session.add(WorkTypeRecord(
+            id=str(work_type.id), name=work_type.name,
+            description=work_type.description, scope_id=str(work_type.scope_id),
+            version=work_type.version,
+        ))
         self._session.flush()
         return work_type
 
     def get(self, work_type_id: UUID) -> WorkType | None:
-        record = self._session.get(WorkTypeRecord, str(work_type_id))
-        if record is None:
-            return None
-        return WorkType(
-            id=UUID(record.id),
-            name=record.name,
-            description=record.description,
-        )
+        row = self._session.get(WorkTypeRecord, str(work_type_id))
+        return self._domain(row) if row is not None else None
 
     def list_all(self) -> list[WorkType]:
-        records = self._session.scalars(
-            select(WorkTypeRecord).order_by(WorkTypeRecord.name, WorkTypeRecord.id)
-        ).all()
-        return [
-            WorkType(id=UUID(record.id), name=record.name,
-                     description=record.description)
-            for record in records
-        ]
+        rows = self._session.scalars(select(WorkTypeRecord).order_by(
+            WorkTypeRecord.name, WorkTypeRecord.id)).all()
+        return [self._domain(row) for row in rows]
+
+    def list_owner(self, owner: str) -> list[WorkType]:
+        from app.infrastructure.models import ScheduleScopeRecord
+        rows = self._session.scalars(select(WorkTypeRecord).join(
+            ScheduleScopeRecord, WorkTypeRecord.scope_id == ScheduleScopeRecord.id,
+        ).where(ScheduleScopeRecord.owner_id == owner).order_by(
+            WorkTypeRecord.name, WorkTypeRecord.id)).all()
+        return [self._domain(row) for row in rows]
+
+    def rename(self, work_type_id: UUID, expected_version: int,
+               name: str, description: str | None) -> WorkType:
+        from sqlalchemy import update
+        from app.domain.recurring_availability import RuleConflict
+        stmt = update(WorkTypeRecord).where(
+            WorkTypeRecord.id == str(work_type_id),
+            WorkTypeRecord.version == expected_version,
+        ).values(name=name, description=description, version=expected_version + 1)
+        if self._session.execute(stmt).rowcount != 1:
+            raise RuleConflict("work type version changed")
+        self._session.flush()
+        return self.get(work_type_id)

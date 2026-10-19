@@ -44,7 +44,11 @@ def test_projection_lifecycle_history_and_atomic_propagation(db):
     with TestClient(app) as client:
         task_id = clarified(client)
         path = f"/api/tasks/{task_id}"
-        work_type_id = client.post("/api/work-types", json={"name": "Focus"}).json()["id"]
+        parent = client.post("/api/schedule-scopes", json={"name": "Travail"})
+        assert parent.status_code == 201, parent.text
+        leaf = client.post("/api/work-types", json={"name": "Focus", "scope_id": parent.json()["id"]})
+        assert leaf.status_code == 201, leaf.text
+        work_type_id = leaf.json()["id"]
         response = client.post(path + "/segments", json={
             "title": "Private A", "estimated_minutes": 20,
             "work_type_id": work_type_id,

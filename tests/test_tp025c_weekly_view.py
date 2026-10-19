@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.domain.calendar import CalendarCommitment
 from app.domain.eligibility import EligibilityRevision, EligibilitySeries
-from app.domain.schedule_scopes import compatibility_scope_id
+
 from app.domain.time_blocks import ConfirmedTimeBlock
 from app.infrastructure import models  # noqa: F401
 from app.infrastructure.db import Base
@@ -62,23 +62,29 @@ def civil(day, hour, minute=0):
 
 
 def general(client, week=WEEK, *, weekdays=(1,), start="10:00", end="11:00"):
-    response = client.post("/api/availability/rules", json={
-        "effective_from": week.isoformat(), "timezone_name": ZONE,
-        "days_of_week": list(weekdays), "starts_at_local": start,
-        "ends_at_local": end, "kind": "GENERAL",
-    })
-    assert response.status_code == 201, response.text
+    parent = client.post("/api/schedule-scopes", json={"name": "Travail"})
+    assert parent.status_code == 201, parent.text
+    scope = parent.json()["id"]
+    body = {"effective_from": week.isoformat(), "timezone_name": ZONE,
+            "sections": [{"weekday": day, "scope_id": scope, "kind": "GENERAL",
+                          "work_type_id": None, "slots": [
+                              {"starts_at_local": start, "ends_at_local": end}]}
+                         for day in weekdays],
+            "expected_versions": {}}
+    preview = client.post("/api/availability/weekly-schedule/preview", json=body)
+    assert preview.status_code == 200, preview.text
+    response = client.post("/api/availability/weekly-schedule/confirm", json={
+        **body, "fingerprint": preview.json()["fingerprint"],
+        "confirmed": True, "command_id": str(uuid4())})
+    assert response.status_code == 200, response.text
+    return UUID(scope)
 
 
 def add_shared(client, factory, count=3):
-    general(client)
-    scope = compatibility_scope_id(OWNER)
+    scope = general(client)
     types = []
-    with SqlAlchemyUnitOfWork(factory) as uow:
-        uow.schedule_scopes.ensure_compatibility(OWNER)
-        uow.commit()
     for index in range(count):
-        response = client.post("/api/work-types", json={"name": "Type " + str(index)})
+        response = client.post("/api/work-types", json={"name": "Type " + str(index), "scope_id": str(scope)})
         assert response.status_code == 201, response.text
         work_type = response.json()["id"]
         types.append(work_type)
@@ -139,7 +145,7 @@ def test_local_booking_and_google_busy_union_without_false_free(runtime):
             week_start=WEEK, task_id=UUID(task_id), segment_id=None,
             work_type_id=UUID(ids[0]),
             starts_at=civil(day, 10), ends_at=civil(day, 10, 30),
-            scope_id=compatibility_scope_id(OWNER)))
+            scope_id=UUID(client.get("/api/schedule-scopes").json()["scopes"][0]["id"])))
         uow.commit()
     reader.events.append(CalendarCommitment(
         "primary", "busy", "Busy meeting",

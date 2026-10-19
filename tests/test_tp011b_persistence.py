@@ -32,6 +32,7 @@ from app.infrastructure import models  # noqa: F401
 from app.infrastructure.db import Base
 from app.infrastructure.history_repository import SqlHistoryRepository
 from app.infrastructure.models import (
+    ScheduleScopeRecord,
     HistoryEventRecord,
     TaskRecord,
     TaskSegmentRecord,
@@ -119,7 +120,11 @@ def test_sqlite_enforces_operational_foreign_keys_and_accepts_valid_relations() 
     )
 
     project = Project(title="Valid project")
-    work_type = WorkType(name="Deep work")
+    scope_id = uuid4()
+    with Session(engine) as session:
+        session.add(ScheduleScopeRecord(id=str(scope_id), owner_id="urn:taskplanner:local", name="Travail", state="ACTIVE", version=1))
+        session.commit()
+    work_type = WorkType(name="Deep work", scope_id=scope_id)
     valid_task = Task(
         title="Valid task",
         project_id=project.id,
@@ -155,9 +160,13 @@ def test_sqlite_enforces_operational_foreign_keys_and_accepts_valid_relations() 
 
 
 def test_project_work_type_and_aggregate_round_trip_preserves_segment_order() -> None:
-    _, factory = _engine_and_factory()
+    engine, factory = _engine_and_factory()
+    scope_id = uuid4()
+    with Session(engine) as session:
+        session.add(ScheduleScopeRecord(id=str(scope_id), owner_id="urn:taskplanner:local", name="Travail", state="ACTIVE", version=1))
+        session.commit()
     project = Project(title="P", description="Description")
-    work_type = WorkType(name="Focused", description="Quiet work")
+    work_type = WorkType(name="Focused", scope_id=scope_id, description="Quiet work")
     task = Task(
         title="Parent",
         project_id=project.id,

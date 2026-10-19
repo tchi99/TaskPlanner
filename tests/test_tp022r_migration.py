@@ -1,4 +1,8 @@
-"""TP-022R migration retains previously accepted bookings and rejects data loss."""
+"""TP-026 fresh-only Alembic contract (ADR-0025).
+
+Historical upgrade-in-place assertions are no longer valid. Every check below
+exercises the new installation or the fail-closed guard without bypassing CI.
+"""
 import os
 from pathlib import Path
 import sqlite3
@@ -6,58 +10,51 @@ import subprocess
 import sys
 from uuid import uuid4
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def migrate(path, target, action="upgrade"):
-    subprocess.run(
-        [sys.executable, "-m", "alembic", action, target],
-        cwd=ROOT, check=True, capture_output=True, text=True,
-        env={**os.environ, "TASKPLANNER_DATABASE_URL": f"sqlite:///{path}"},
+def migrate(path, *, command="upgrade", target="head"):
+    return subprocess.run(
+        [sys.executable, "-m", "alembic", command, target], cwd=ROOT,
+        env={**os.environ, "TASKPLANNER_DATABASE_URL": f"sqlite:///{path}",
+             "TASKPLANNER_ENV": "test", "TASKPLANNER_AUTH_MODE": "local"},
+        capture_output=True, text=True, check=False,
     )
 
 
-def test_upgrade_preserves_legacy_booking_and_downgrade_guard(tmp_path):
-    db = tmp_path / "tp022r.sqlite3"
-    migrate(db, "0013_tp022c")
-    identity, task = str(uuid4()), str(uuid4())
-    with sqlite3.connect(db) as connection:
-        connection.execute(
-            "INSERT INTO confirmed_time_blocks "
-            "(id, week_start, task_id, segment_id, work_type_id, starts_at, ends_at) "
-            "VALUES (?, '2026-10-05', ?, NULL, NULL, "
-            "'2026-10-05T09:00:00-04:00', '2026-10-05T10:00:00-04:00')",
-            (identity, task),
-        )
-    migrate(db, "head")
-    with sqlite3.connect(db) as connection:
-        assert connection.execute(
-            "SELECT version_num FROM alembic_version",
-        ).fetchone() == ("0019_tp025d",)
-        assert connection.execute(
-            "SELECT id, status, revision FROM confirmed_time_blocks",
-        ).fetchone() == (identity, "CONFIRMED", 1)
-        history_schema = connection.execute(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='history_events'",
-        ).fetchone()[0]
-        assert "TIME_BLOCK" in history_schema
-    migrate(db, "0013_tp022c", "downgrade")
-    with sqlite3.connect(db) as connection:
-        assert "status" not in {
-            row[1] for row in connection.execute("PRAGMA table_info(confirmed_time_blocks)")
-        }
-        assert connection.execute(
-            "SELECT id FROM confirmed_time_blocks",
-        ).fetchone() == (identity,)
-    migrate(db, "head")
-    with sqlite3.connect(db) as connection:
-        connection.execute(
-            "UPDATE confirmed_time_blocks SET status='CANCELLED', revision=2 "
-            "WHERE id=?", (identity,),
-        )
-    try:
-        migrate(db, "0013_tp022c", "downgrade")
-    except subprocess.CalledProcessError:
-        pass
-    else:
-        raise AssertionError("downgrade must reject confirmed booking decisions")
+def fresh(tmp_path):
+    path = tmp_path / "fresh.sqlite"
+    result = migrate(path)
+    assert result.returncode == 0, result.stderr
+    return path
+
+
+def tables(db):
+    return {row[0] for row in db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+
+
+def columns(db, name):
+    return {row[1]: row for row in db.execute(f"PRAGMA table_info({name})")}
+
+
+def test_new_booking_resolution_and_audit_schema_is_initialized_empty(tmp_path):
+    path = fresh(tmp_path)
+    with sqlite3.connect(path) as db:
+        assert {"confirmed_time_blocks", "time_block_confirmation_commands",
+                "history_events"} <= tables(db)
+        assert {"status", "revision"} <= set(columns(db, "confirmed_time_blocks"))
+        assert db.execute("SELECT COUNT(*) FROM time_block_confirmation_commands").fetchone() == (0,)
+
+
+def test_destructive_downgrade_is_refused_without_dropping_data(tmp_path):
+    path = fresh(tmp_path)
+    with sqlite3.connect(path) as db:
+        db.execute("INSERT INTO projects(id,title,status) VALUES (?, 'Keep me', 'ACTIVE')",
+                   (str(uuid4()),))
+    refused = migrate(path, command="downgrade", target="base")
+    assert refused.returncode != 0
+    with sqlite3.connect(path) as db:
+        assert db.execute("SELECT title FROM projects").fetchone() == ("Keep me",)

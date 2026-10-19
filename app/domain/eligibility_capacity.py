@@ -59,7 +59,8 @@ def evaluate_eligibility_week(
         capacity = possibilities.get(key, 0)
         known, unknown = demand.get(key, [0, 0])
         local_status = (
-            CapacityStatus.OVER_CAPACITY if known > capacity
+            CapacityStatus.INCOMPLETE if key[1] is None and (known or unknown)
+            else CapacityStatus.OVER_CAPACITY if known > capacity
             else CapacityStatus.INCOMPLETE if unknown
             else CapacityStatus.FEASIBLE
         )
@@ -81,9 +82,12 @@ def evaluate_eligibility_week(
     status = (
         CapacityStatus.OVER_CAPACITY
         if previous.known_demand_minutes > eligibility.physical_minutes
-        or no_placement or any(row.status is CapacityStatus.OVER_CAPACITY for row in rows)
-        else CapacityStatus.INCOMPLETE
-        if previous.unestimated_units else CapacityStatus.FEASIBLE
+        or any(row.status is CapacityStatus.OVER_CAPACITY for row in rows)
+        else CapacityStatus.INCOMPLETE if previous.unestimated_units
+        or any(row.work_type_id is None and row.known_demand_minutes
+               for row in rows)
+        else CapacityStatus.PLACEMENT_NOT_FOUND if no_placement
+        else CapacityStatus.FEASIBLE
     )
     return WeeklyCapacityEvaluation(
         week_start=week_start, available_minutes=eligibility.physical_minutes,

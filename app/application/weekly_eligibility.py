@@ -121,7 +121,7 @@ def weekly_eligibility(
         zone = ZoneInfo(timezone_name)
     except (ZoneInfoNotFoundError, ValueError, TypeError) as exc:
         raise ValueError("invalid IANA timezone") from exc
-    selected = scope_id or compatibility_scope_id(owner_id)
+    selected = scope_id
     start = datetime.combine(week_start, time.min, zone).astimezone(timezone.utc)
     end = datetime.combine(week_start + timedelta(days=7), time.min, zone).astimezone(timezone.utc)
     calendar_state = "VERIFIED"
@@ -139,7 +139,9 @@ def weekly_eligibility(
 
     with uow:
         owned_scopes = tuple(uow.schedule_scopes.list_owner(owner_id))
-        if selected != compatibility_scope_id(owner_id) and not any(
+        if selected is None:
+            selected = owned_scopes[0].id if owned_scopes else None
+        if selected is not None and not any(
                 item.id == selected for item in owned_scopes):
             raise LookupError("schedule scope not found")
         state = effective_week(uow, owner_id, week_start, timezone_name)
@@ -153,7 +155,7 @@ def weekly_eligibility(
         physical = tuple(item for item in state.blocks if item.scope_id == selected)
         spans = tuple((item.starts_at, item.ends_at) for item in fragments)
         visible_bookings = tuple(item for item in confirmed
-                                 if (item.scope_id or compatibility_scope_id(owner_id)) == selected
+                                 if item.scope_id == selected
                                  and _intersects(_instant(item.starts_at),
                                                  _instant(item.ends_at), spans))
         # Google busy time is global; clip to this parent's declared physical time.

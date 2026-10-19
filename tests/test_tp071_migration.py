@@ -1,4 +1,8 @@
-"""Additive 0009 migration preserves task rows and enforces one active session."""
+"""TP-026 fresh-only Alembic contract (ADR-0025).
+
+Historical upgrade-in-place assertions are no longer valid. Every check below
+exercises the new installation or the fail-closed guard without bypassing CI.
+"""
 import os
 from pathlib import Path
 import sqlite3
@@ -6,34 +10,45 @@ import subprocess
 import sys
 from uuid import uuid4
 
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _upgrade(path: Path, revision: str) -> None:
-    env = {**os.environ, "TASKPLANNER_DATABASE_URL": f"sqlite:///{path}"}
-    subprocess.run([sys.executable, "-m", "alembic", "upgrade", revision],
-                   cwd=ROOT, env=env, check=True, capture_output=True, text=True)
+def migrate(path, *, command="upgrade", target="head"):
+    return subprocess.run(
+        [sys.executable, "-m", "alembic", command, target], cwd=ROOT,
+        env={**os.environ, "TASKPLANNER_DATABASE_URL": f"sqlite:///{path}",
+             "TASKPLANNER_ENV": "test", "TASKPLANNER_AUTH_MODE": "local"},
+        capture_output=True, text=True, check=False,
+    )
 
 
-def test_additive_migration_and_partial_uniqueness(tmp_path):
-    path = tmp_path / "work.db"
-    _upgrade(path, "0008_tp070")
-    task_id = str(uuid4())
+def fresh(tmp_path):
+    path = tmp_path / "fresh.sqlite"
+    result = migrate(path)
+    assert result.returncode == 0, result.stderr
+    return path
+
+
+def tables(db):
+    return {row[0] for row in db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+
+
+def columns(db, name):
+    return {row[1]: row for row in db.execute(f"PRAGMA table_info({name})")}
+
+
+def test_fresh_work_sessions_keep_single_active_partial_uniqueness(tmp_path):
+    path = fresh(tmp_path)
     with sqlite3.connect(path) as db:
-        db.execute(
-            "INSERT INTO tasks (id,title,status,protection,created_at) "
-            "VALUES (?, ?, 'TODO', 'REPLANNABLE', ?)",
-            (task_id, "Old task", "2026-10-10 12:00:00"),
-        )
-    _upgrade(path, "head")
-    with sqlite3.connect(path) as db:
-        assert db.execute("SELECT title FROM tasks WHERE id=?", (task_id,)).fetchone() == ("Old task",)
-        table = {row[1] for row in db.execute("PRAGMA table_info(work_sessions)")}
-        assert {"task_id", "segment_id", "active_since", "active_seconds", "revision"} <= table
-        template = ("INSERT INTO work_sessions (id,task_id,started_at,active_since,"
-                    "active_seconds,interruptions,status,revision) VALUES (?,?,?, ?,0,0,?,1)")
-        stamp = "2026-10-10 12:00:00"
-        db.execute(template, (str(uuid4()), task_id, stamp, stamp, "ACTIVE"))
-        with __import__("pytest").raises(sqlite3.IntegrityError):
-            db.execute(template, (str(uuid4()), task_id, stamp, stamp, "ACTIVE"))
+        assert {"task_id", "segment_id", "active_since", "active_seconds",
+                "revision", "status"} <= set(columns(db, "work_sessions"))
+        index_sql = db.execute(
+            "SELECT sql FROM sqlite_master WHERE type='index' "
+            "AND name='uq_work_sessions_single_active'"
+        ).fetchone()[0]
+        assert "UNIQUE" in index_sql.upper()
+        assert "WHERE" in index_sql.upper() and "ACTIVE" in index_sql
+        assert db.execute("SELECT COUNT(*) FROM work_sessions").fetchone() == (0,)

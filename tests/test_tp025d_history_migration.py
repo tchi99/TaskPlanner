@@ -1,4 +1,8 @@
-"""TP-025D audit migration: additive types, old history and guarded downgrade."""
+"""TP-026 fresh-only Alembic contract (ADR-0025).
+
+Historical upgrade-in-place assertions are no longer valid. Every check below
+exercises the new installation or the fail-closed guard without bypassing CI.
+"""
 import os
 from pathlib import Path
 import sqlite3
@@ -10,66 +14,49 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
-_SQL = (
-    "INSERT INTO history_events "
-    "(id,occurred_at,recorded_at,entity_type,entity_id,event_type,"
-    "schema_version,source,correlation_id,payload) "
-    "VALUES (?, '2026-10-16 20:00:00', '2026-10-16 20:00:00',"
-    "?, ?, ?, 1, 'USER', ?, '{}')"
-)
 
-
-def migrate(path: Path, command: str, version: str, *, success: bool = True) -> None:
-    result = subprocess.run(
-        [sys.executable, "-m", "alembic", command, version],
-        cwd=ROOT, capture_output=True, text=True, check=False,
-        env={**os.environ, "TASKPLANNER_DATABASE_URL": f"sqlite:///{path}"},
+def migrate(path, *, command="upgrade", target="head"):
+    return subprocess.run(
+        [sys.executable, "-m", "alembic", command, target], cwd=ROOT,
+        env={**os.environ, "TASKPLANNER_DATABASE_URL": f"sqlite:///{path}",
+             "TASKPLANNER_ENV": "test", "TASKPLANNER_AUTH_MODE": "local"},
+        capture_output=True, text=True, check=False,
     )
-    assert (result.returncode == 0) == success, result.stderr
 
 
-def write_audit(db, entity_type: str, event_type: str) -> str:
-    identifier = str(uuid4())
-    db.execute(_SQL, (str(uuid4()), entity_type, identifier, event_type, str(uuid4())))
-    return identifier
+def fresh(tmp_path):
+    path = tmp_path / "fresh.sqlite"
+    result = migrate(path)
+    assert result.returncode == 0, result.stderr
+    return path
 
 
-def test_upgrade_keeps_existing_audit_and_accepts_eligibility_series(tmp_path):
-    path = tmp_path / "history.sqlite"
-    migrate(path, "upgrade", "0018_tp025b")
+def tables(db):
+    return {row[0] for row in db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+
+
+def columns(db, name):
+    return {row[1]: row for row in db.execute(f"PRAGMA table_info({name})")}
+
+
+def test_fresh_history_supports_current_eligibility_and_booking_audit(tmp_path):
+    path = fresh(tmp_path)
     with sqlite3.connect(path) as db:
-        old_id = write_audit(db, "AVAILABILITY_RULE", "AVAILABILITY_RULE_CHANGED")
-        before = db.execute(
-            "SELECT sequence FROM history_events WHERE entity_id=?", (old_id,)
+        table_sql = db.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='history_events'"
         ).fetchone()[0]
-    migrate(path, "upgrade", "head")
-    with sqlite3.connect(path) as db:
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0019_tp025d",)
-        assert db.execute("SELECT sequence FROM history_events WHERE entity_id=?",
-                          (old_id,)).fetchone()[0] == before
-        new_id = write_audit(db, "ELIGIBILITY_SERIES", "ELIGIBILITY_SERIES_CHANGED")
-        assert db.execute("SELECT entity_type FROM history_events WHERE entity_id=?",
-                          (new_id,)).fetchone() == ("ELIGIBILITY_SERIES",)
-        assert db.execute("SELECT COUNT(*) FROM history_events").fetchone()[0] == 2
-        names = {row[1] for row in db.execute("PRAGMA index_list(history_events)")}
-        assert {"ix_history_events_task_sequence", "ix_history_events_entity_sequence",
-                "ix_history_events_correlation_sequence"} <= names
-        with pytest.raises(sqlite3.IntegrityError):
-            write_audit(db, "UNKNOWN", "INVALID_EVENT")
-    migrate(path, "downgrade", "0018_tp025b", success=False)
+        for event_type in ("ELIGIBILITY_SERIES", "TIME_BLOCK",
+                           "AVAILABILITY_EXCEPTION", "TASK"):
+            assert event_type in table_sql
+        assert {"sequence", "correlation_id", "payload",
+                "schema_version", "source"} <= set(columns(db, "history_events"))
+        assert db.execute("SELECT COUNT(*) FROM history_events").fetchone() == (0,)
 
 
-def test_downgrade_without_new_audit_preserves_old_data(tmp_path):
-    path = tmp_path / "old-only.sqlite"
-    migrate(path, "upgrade", "0018_tp025b")
+def test_no_stale_audit_or_compatibility_parent_on_clean_install(tmp_path):
+    path = fresh(tmp_path)
     with sqlite3.connect(path) as db:
-        old_id = write_audit(db, "TASK", "TASK_CAPTURED")
-    migrate(path, "upgrade", "head")
-    migrate(path, "downgrade", "0018_tp025b")
-    with sqlite3.connect(path) as db:
-        assert db.execute("SELECT entity_type FROM history_events WHERE entity_id=?",
-                          (old_id,)).fetchone() == ("TASK",)
-        with pytest.raises(sqlite3.IntegrityError):
-            write_audit(db, "ELIGIBILITY_SERIES", "ELIGIBILITY_SERIES_CHANGED")
-    migrate(path, "upgrade", "head")
+        assert db.execute("SELECT COUNT(*) FROM schedule_scopes").fetchone() == (0,)
+        assert db.execute("SELECT COUNT(*) FROM scope_change_audit").fetchone() == (0,)
+        assert "is_compatibility" not in columns(db, "schedule_scopes")

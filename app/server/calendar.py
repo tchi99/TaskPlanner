@@ -2,7 +2,7 @@
 from datetime import date, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from app.application.calendar import CalendarReader, CalendarWeek, read_calendar_week
@@ -13,6 +13,7 @@ from app.infrastructure.google_calendar import (
 )
 from app.infrastructure.uow import get_uow
 from app.server.errors import invoke
+from app.server.recurring_availability import _owner
 
 
 router = APIRouter(prefix="/api/capacity/weeks", tags=["calendar"])
@@ -76,13 +77,15 @@ class CalendarWeekResponse(BaseModel):
 @router.get("/{week_start}/calendar", response_model=CalendarWeekResponse)
 def get_calendar_week(
     week_start: date,
+    request: Request,
     timezone_name: str = "UTC",
     uow: UnitOfWork = Depends(get_uow),
     reader: CalendarReader = Depends(get_calendar_reader),
 ) -> CalendarWeekResponse:
     try:
         return CalendarWeekResponse.from_domain(invoke(
-            lambda: read_calendar_week(uow, reader, week_start, timezone_name)
+            lambda: read_calendar_week(uow, reader, week_start, timezone_name,
+                                       owner_id=_owner(request))
         ))
     except GoogleCalendarNotConfigured as exc:
         raise HTTPException(status_code=503, detail="Google Calendar is not configured") from exc

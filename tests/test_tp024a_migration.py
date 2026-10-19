@@ -1,4 +1,8 @@
-"""TP-024A additive migration: SQLite legacy data remain intact and downgrade guards."""
+"""TP-026 fresh-only Alembic contract (ADR-0025).
+
+Historical upgrade-in-place assertions are no longer valid. Every check below
+exercises the new installation or the fail-closed guard without bypassing CI.
+"""
 import os
 from pathlib import Path
 import sqlite3
@@ -6,90 +10,54 @@ import subprocess
 import sys
 from uuid import uuid4
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def migrate(path, revision, action="upgrade", *, succeed=True):
-    result = subprocess.run(
-        [sys.executable, "-m", "alembic", action, revision],
-        cwd=ROOT, capture_output=True, text=True, check=False,
-        env={**os.environ, "TASKPLANNER_DATABASE_URL": f"sqlite:///{path}"},
+def migrate(path, *, command="upgrade", target="head"):
+    return subprocess.run(
+        [sys.executable, "-m", "alembic", command, target], cwd=ROOT,
+        env={**os.environ, "TASKPLANNER_DATABASE_URL": f"sqlite:///{path}",
+             "TASKPLANNER_ENV": "test", "TASKPLANNER_AUTH_MODE": "local"},
+        capture_output=True, text=True, check=False,
     )
-    if succeed:
-        assert result.returncode == 0, result.stderr
-    else:
-        assert result.returncode != 0, "unsafe downgrade unexpectedly succeeded"
-    return result
 
 
-def test_tp024a_retains_legacy_rows_without_guessed_parent(tmp_path):
-    path = tmp_path / "migration.sqlite"
-    migrate(path, "0015_tp023a")
-    wid = str(uuid4())
-    rid = str(uuid4())
+def fresh(tmp_path):
+    path = tmp_path / "fresh.sqlite"
+    result = migrate(path)
+    assert result.returncode == 0, result.stderr
+    return path
+
+
+def tables(db):
+    return {row[0] for row in db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+
+
+def columns(db, name):
+    return {row[1]: row for row in db.execute(f"PRAGMA table_info({name})")}
+
+
+def test_real_parent_is_required_at_database_boundary(tmp_path):
+    path = fresh(tmp_path)
     with sqlite3.connect(path) as db:
-        db.execute("INSERT INTO work_types(id,name,description) VALUES (?,?,NULL)",
-                   (wid, "Travail"))
-        db.execute(
-            "INSERT INTO recurring_availability_rules"
-            " (id,owner_id,version,created_at) VALUES (?,?,1,?)",
-            (rid, "urn:taskplanner:local", "2026-10-15T00:00:00Z"),
-        )
-        db.execute(
-            "INSERT INTO recurring_availability_revisions"
-            " (id,rule_id,number,effective_from,valid_until,timezone_name,"
-            "days_of_week,starts_at_local,ends_at_local,kind,work_type_id,"
-            "mode,enabled,start_fold,end_fold,recorded_at,supersedes_future)"
-            " VALUES (?,?,1,'2027-01-01',NULL,'America/Toronto','[1]',"
-            "'09:00','10:00','CATEGORIZED',?,'PREFERRED',1,NULL,NULL,?,0)",
-            (str(uuid4()), rid, wid, "2026-10-15T00:00:00Z"),
-        )
-    migrate(path, "head")
-    with sqlite3.connect(path) as db:
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0019_tp025d",
-        )
-        assert db.execute(
-            "SELECT work_type_id, scope_id FROM recurring_availability_revisions "
-            "WHERE rule_id=?", (rid,),
-        ).fetchone() == (wid, None)
-        assert db.execute(
-            "SELECT name FROM work_types WHERE id=?", (wid,),
-        ).fetchone() == ("Travail",)
-        assert db.execute("SELECT COUNT(*) FROM schedule_scopes").fetchone()[0] == 0
-        assert db.execute("SELECT COUNT(*) FROM work_type_scope_assignments").fetchone()[0] == 0
-        assert "scope_id" in {
-            row[1] for row in db.execute("PRAGMA table_info(confirmed_time_blocks)")
-        }
-        # Every new provenance column has a real, named FK in SQLite.
-        for table in ("recurring_availability_revisions", "availability_exceptions",
-                      "availability_blocks", "confirmed_time_blocks"):
-            assert any(
-                row[2] == "schedule_scopes"
-                and row[3] == "scope_id"
-                and row[4] == "id"
-                and row[6] == "RESTRICT"
-                for row in db.execute(f"PRAGMA foreign_key_list({table})")
-            ), table
-    migrate(path, "0015_tp023a", "downgrade")
-    with sqlite3.connect(path) as db:
-        assert "scope_id" not in {
-            row[1] for row in db.execute(
-                "PRAGMA table_info(recurring_availability_revisions)"
-            )
-        }
-        for table in ("recurring_availability_revisions", "availability_exceptions",
-                      "availability_blocks", "confirmed_time_blocks"):
-            assert all(
-                row[3] != "scope_id"
-                for row in db.execute(f"PRAGMA foreign_key_list({table})")
-            ), table
-    migrate(path, "head")
-    with sqlite3.connect(path) as db:
-        db.execute(
-            "INSERT INTO schedule_scopes"
-            " (id,owner_id,name,state,version,is_compatibility)"
-            " VALUES (?,?,'Travail','ACTIVE',1,0)",
-            (str(uuid4()), "urn:taskplanner:local"),
-        )
-    migrate(path, "0015_tp023a", "downgrade", succeed=False)
+        db.execute("PRAGMA foreign_keys=ON")
+        cols = columns(db, "work_types")
+        assert cols["scope_id"][3] == 1
+        assert "is_compatibility" not in columns(db, "schedule_scopes")
+        assert "work_type_scope_assignments" not in tables(db)
+        fk = {row[3]: (row[2], row[6]) for row in db.execute(
+            "PRAGMA foreign_key_list(work_types)")}
+        assert fk["scope_id"] == ("schedule_scopes", "RESTRICT")
+        with pytest.raises(sqlite3.IntegrityError):
+            db.execute("INSERT INTO work_types(id,name,scope_id,version)"
+                       " VALUES (?, 'Orphan', ?, 1)", (str(uuid4()), str(uuid4())))
+        parent = str(uuid4())
+        db.execute("INSERT INTO schedule_scopes(id,owner_id,name,state,version)"
+                   " VALUES (?, 'owner', 'Travail', 'ACTIVE', 1)", (parent,))
+        leaf = str(uuid4())
+        db.execute("INSERT INTO work_types(id,name,scope_id,version)"
+                   " VALUES (?, 'Focus', ?, 1)", (leaf, parent))
+        assert db.execute("SELECT scope_id FROM work_types WHERE id=?", (leaf,)).fetchone() == (parent,)

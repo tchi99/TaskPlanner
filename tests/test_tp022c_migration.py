@@ -1,4 +1,8 @@
-"""TP-022C additive migration retains historical reservations on SQLite."""
+"""TP-026 fresh-only Alembic contract (ADR-0025).
+
+Historical upgrade-in-place assertions are no longer valid. Every check below
+exercises the new installation or the fail-closed guard without bypassing CI.
+"""
 import os
 from pathlib import Path
 import sqlite3
@@ -6,56 +10,44 @@ import subprocess
 import sys
 from uuid import uuid4
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def migrate(path, target, *, action="upgrade"):
-    subprocess.run(
-        [sys.executable, "-m", "alembic", action, target],
-        cwd=ROOT, check=True, capture_output=True, text=True,
-        env={**os.environ, "TASKPLANNER_DATABASE_URL": f"sqlite:///{path}"},
+def migrate(path, *, command="upgrade", target="head"):
+    return subprocess.run(
+        [sys.executable, "-m", "alembic", command, target], cwd=ROOT,
+        env={**os.environ, "TASKPLANNER_DATABASE_URL": f"sqlite:///{path}",
+             "TASKPLANNER_ENV": "test", "TASKPLANNER_AUTH_MODE": "local"},
+        capture_output=True, text=True, check=False,
     )
 
 
-def test_accepted_transfer_column_does_not_rewrite_legacy_booking(tmp_path):
-    db_path = tmp_path / "tp022c.db"
-    migrate(db_path, "0012_tp022b")
-    identity, task = str(uuid4()), str(uuid4())
-    with sqlite3.connect(db_path) as connection:
-        connection.execute(
-            "INSERT INTO confirmed_time_blocks "
-            "(id, week_start, task_id, segment_id, work_type_id, starts_at, ends_at) "
-            "VALUES (?, '2026-10-05', ?, NULL, NULL, "
-            "'2026-10-05T09:00:00-04:00', '2026-10-05T10:00:00-04:00')",
-            (identity, task),
-        )
-    migrate(db_path, "0013_tp022c")
-    with sqlite3.connect(db_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0013_tp022c",
-        )
-        columns = {r[1] for r in connection.execute(
-            "PRAGMA table_info(confirmed_time_blocks)"
-        )}
-        assert "transferred_from_work_type_id" in columns
-        assert connection.execute(
-            "SELECT id, transferred_from_work_type_id FROM confirmed_time_blocks"
-        ).fetchone() == (identity, None)
-        constraints = connection.execute(
-            "PRAGMA foreign_key_list(confirmed_time_blocks)"
-        ).fetchall()
-        assert any(
-            row[2] == "work_types" and row[3] == "transferred_from_work_type_id"
-            and row[6] == "RESTRICT"
-            for row in constraints
-        )
-    migrate(db_path, "0012_tp022b", action="downgrade")
-    with sqlite3.connect(db_path) as connection:
-        assert "transferred_from_work_type_id" not in {
-            row[1] for row in connection.execute(
-                "PRAGMA table_info(confirmed_time_blocks)"
-            )
-        }
-        assert connection.execute(
-            "SELECT id FROM confirmed_time_blocks"
-        ).fetchone() == (identity,)
+def fresh(tmp_path):
+    path = tmp_path / "fresh.sqlite"
+    result = migrate(path)
+    assert result.returncode == 0, result.stderr
+    return path
+
+
+def tables(db):
+    return {row[0] for row in db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+
+
+def columns(db, name):
+    return {row[1]: row for row in db.execute(f"PRAGMA table_info({name})")}
+
+
+def test_fresh_booking_provenance_columns_have_restrictive_relations(tmp_path):
+    path = fresh(tmp_path)
+    with sqlite3.connect(path) as db:
+        names = set(columns(db, "confirmed_time_blocks"))
+        assert {"work_type_id", "scope_id", "transferred_from_work_type_id",
+                "status", "revision"} <= names
+        fks = {row[3]: (row[2], row[6]) for row in db.execute(
+            "PRAGMA foreign_key_list(confirmed_time_blocks)")}
+        assert fks["work_type_id"] == ("work_types", "RESTRICT")
+        assert fks["scope_id"] == ("schedule_scopes", "RESTRICT")
+        assert db.execute("SELECT COUNT(*) FROM confirmed_time_blocks").fetchone() == (0,)

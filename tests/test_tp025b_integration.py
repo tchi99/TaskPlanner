@@ -12,7 +12,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.domain.calendar import CalendarCommitment
 from app.domain.eligibility import EligibilityRevision, EligibilitySeries
-from app.domain.schedule_scopes import compatibility_scope_id
+
 from app.infrastructure import models  # noqa: F401
 from app.infrastructure.db import Base
 from app.infrastructure.models import ConfirmedTimeBlockRecord, HistoryEventRecord
@@ -61,8 +61,9 @@ def local(day, hour, minute=0):
                     tzinfo=ZoneInfo(ZONE)).isoformat()
 
 
-def work_type(client, title):
-    response = client.post("/api/work-types", json={"name": title})
+def work_type(client, title, scope):
+    response = client.post("/api/work-types", json={
+        "name": title, "scope_id": str(scope)})
     assert response.status_code == 201, response.text
     return UUID(response.json()["id"])
 
@@ -79,17 +80,25 @@ def task(client, work_type_id, minutes):
 
 
 def configure(client, factory, *, include_wednesday=False):
-    scope = compatibility_scope_id(OWNER)
-    focus, meetings = work_type(client, "Focus"), work_type(client, "Meetings")
-    response = client.post("/api/availability/rules", json={
-        "effective_from": WEEK.isoformat(), "timezone_name": ZONE,
-        "days_of_week": [1, 2] if include_wednesday else [1],
-        "starts_at_local": "10:00", "ends_at_local": "11:00",
-        "kind": "GENERAL",
-    })
-    assert response.status_code == 201, response.text
+    parent = client.post("/api/schedule-scopes", json={"name": "Travail"})
+    assert parent.status_code == 201, parent.text
+    scope = UUID(parent.json()["id"])
+    focus, meetings = (work_type(client, "Focus", scope),
+                       work_type(client, "Meetings", scope))
+    # A real parent envelope is the sole source of physical capacity.
+    sections = [{"weekday": day, "scope_id": str(scope), "kind": "GENERAL",
+                 "work_type_id": None,
+                 "slots": [{"starts_at_local": "10:00", "ends_at_local": "11:00"}]}
+                for day in ([1, 2] if include_wednesday else [1])]
+    body = {"effective_from": WEEK.isoformat(), "timezone_name": ZONE,
+            "sections": sections, "expected_versions": {}}
+    proposed = client.post("/api/availability/weekly-schedule/preview", json=body)
+    assert proposed.status_code == 200, proposed.text
+    committed = client.post("/api/availability/weekly-schedule/confirm", json={
+        **body, "fingerprint": proposed.json()["fingerprint"],
+        "confirmed": True, "command_id": str(uuid4())})
+    assert committed.status_code == 200, committed.text
     with SqlAlchemyUnitOfWork(factory) as uow:
-        uow.schedule_scopes.ensure_compatibility(OWNER)
         series = []
         for target, rank in ((focus, 1), (meetings, 2)):
             sid = uuid4()

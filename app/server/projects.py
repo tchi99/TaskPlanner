@@ -1,17 +1,19 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.application.projects import (
-    create_project, create_work_type, get_project,
+    create_project, create_work_type, rename_work_type, get_project,
     list_project_tasks, list_projects, list_work_types,
 )
 from app.application.uow import UnitOfWork
+from app.domain.recurring_availability import RuleConflict
 from app.infrastructure.uow import get_uow
 from app.server.errors import invoke
+from app.server.recurring_availability import _owner
 from app.server.schemas import (
     ProjectCreateRequest, ProjectResponse, TaskResponse,
-    WorkTypeCreateRequest, WorkTypeResponse,
+    WorkTypeCreateRequest, WorkTypeUpdateRequest, WorkTypeResponse,
 )
 
 projects_router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -36,26 +38,31 @@ def detail(project_id: UUID, uow: UnitOfWork = Depends(get_uow)) -> ProjectRespo
 
 
 @projects_router.get("/{project_id}/tasks", response_model=list[TaskResponse])
-def project_tasks(
-    project_id: UUID, uow: UnitOfWork = Depends(get_uow)
-) -> list[TaskResponse]:
-    return [
-        TaskResponse.from_domain(item)
-        for item in invoke(lambda: list_project_tasks(uow, project_id))
-    ]
+def project_tasks(project_id: UUID, uow: UnitOfWork = Depends(get_uow)) -> list[TaskResponse]:
+    return [TaskResponse.from_domain(item) for item in
+            invoke(lambda: list_project_tasks(uow, project_id))]
 
 
-@work_types_router.post(
-    "", response_model=WorkTypeResponse, status_code=status.HTTP_201_CREATED
-)
-def create_type(
-    payload: WorkTypeCreateRequest, uow: UnitOfWork = Depends(get_uow)
-) -> WorkTypeResponse:
-    return WorkTypeResponse.from_domain(
-        invoke(lambda: create_work_type(uow, payload.name, payload.description))
-    )
+@work_types_router.post("", response_model=WorkTypeResponse, status_code=status.HTTP_201_CREATED)
+def create_type(request: Request, payload: WorkTypeCreateRequest,
+                uow: UnitOfWork = Depends(get_uow)) -> WorkTypeResponse:
+    return WorkTypeResponse.from_domain(invoke(lambda: create_work_type(
+        uow, payload.name, payload.description, payload.scope_id, _owner(request))))
+
+
+@work_types_router.patch("/{work_type_id}", response_model=WorkTypeResponse)
+def update_type(work_type_id: UUID, request: Request, payload: WorkTypeUpdateRequest,
+                uow: UnitOfWork = Depends(get_uow)) -> WorkTypeResponse:
+    try:
+        result = invoke(lambda: rename_work_type(
+            uow, _owner(request), work_type_id, payload.name, payload.description,
+            payload.expected_version))
+    except RuleConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return WorkTypeResponse.from_domain(result)
 
 
 @work_types_router.get("", response_model=list[WorkTypeResponse])
-def types(uow: UnitOfWork = Depends(get_uow)) -> list[WorkTypeResponse]:
-    return [WorkTypeResponse.from_domain(item) for item in list_work_types(uow)]
+def types(request: Request, uow: UnitOfWork = Depends(get_uow)) -> list[WorkTypeResponse]:
+    return [WorkTypeResponse.from_domain(item) for item in
+            list_work_types(uow, _owner(request))]

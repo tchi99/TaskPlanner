@@ -14,10 +14,11 @@ from app.domain.eligibility_projection import project_eligibility
 from app.domain.recurring_availability import (
     AvailabilityMode, RecurringAvailabilityRule, RuleKind, RuleRevision,
 )
-from app.domain.schedule_scopes import ScopeAffiliation, compatibility_scope_id
+from app.domain.schedule_scopes import ScopeAffiliation
 
 
 START = date(2027, 1, 4)  # Monday
+PARENT = uuid4()  # A real scheduling parent in this domain-only fixture.
 
 
 def series(scope, work_type, *, days=(1,), start="10:00", end="12:00",
@@ -40,8 +41,14 @@ def legacy(scope, *, kind=RuleKind.GENERAL, work_type=None, mode=None):
     return RecurringAvailabilityRule(rid, "owner", 1, (revision,))
 
 
-def projection(rules, series_values, exceptions=(), affiliations=()):
-    scope = compatibility_scope_id("owner")
+def projection(rules, series_values, exceptions=(), affiliations=None):
+    scope = PARENT
+    # The new model derives immutable parent membership from each WorkType.
+    # Projection tests pass the resulting read-only affiliations explicitly.
+    if affiliations is None:
+        affiliations = tuple(ScopeAffiliation(value.work_type_id, value.scope_id,
+                                              "owner", START, 1)
+                             for value in series_values)
     original = project_effective(
         rules, (), (), (), START, START + timedelta(days=7),
         "America/Toronto", compatibility_id=scope, affiliations=affiliations,
@@ -53,7 +60,7 @@ def projection(rules, series_values, exceptions=(), affiliations=()):
 
 
 def test_two_or_three_admissions_share_one_physical_120_minute_span():
-    scope = compatibility_scope_id("owner")
+    scope = PARENT
     types = [uuid4() for _ in range(3)]
     p = projection((legacy(scope),), tuple(series(scope, typ) for typ in types))
     shared = [f for f in p.fragments if len(f.choices) == 3]
@@ -66,7 +73,7 @@ def test_two_or_three_admissions_share_one_physical_120_minute_span():
 
 
 def test_priority_is_local_and_other_days_are_neutral():
-    scope = compatibility_scope_id("owner")
+    scope = PARENT
     focus, meetings = uuid4(), uuid4()
     p = projection(
         (legacy(scope),),
@@ -86,7 +93,7 @@ def test_priority_is_local_and_other_days_are_neutral():
 
 
 def test_remove_only_its_permission_and_restores_null_residual():
-    scope = compatibility_scope_id("owner")
+    scope = PARENT
     focus, meetings = uuid4(), uuid4()
     first = series(scope, focus)
     second = series(scope, meetings)
@@ -106,7 +113,7 @@ def test_remove_only_its_permission_and_restores_null_residual():
 
 
 def test_conflicting_rank_same_type_is_diagnostic_not_uuid_tiebreak():
-    scope = compatibility_scope_id("owner")
+    scope = PARENT
     focus = uuid4()
     p = projection(
         (legacy(scope),),
@@ -116,31 +123,17 @@ def test_conflicting_rank_same_type_is_diagnostic_not_uuid_tiebreak():
     assert not p.potential_minutes
 
 
-def test_legacy_exclusive_is_not_reinterpreted_as_shared():
-    scope = compatibility_scope_id("owner")
-    focus, meetings = uuid4(), uuid4()
-    p = projection(
-        (legacy(scope), legacy(scope, kind=RuleKind.CATEGORIZED,
-                               work_type=focus, mode=AvailabilityMode.PROTECTED)),
-        (series(scope, meetings),),
-    )
-    assert "ELIGIBILITY_OVER_LEGACY_EXCLUSIVE" in {v.code for v in p.issues}
-    assert dict(p.potential_minutes) == {focus: 480}
-    assert all(f.choices[0].exclusive for f in p.fragments)
-    assert all(f.choices[0].legacy_mode is AvailabilityMode.PROTECTED
-               for f in p.fragments)
-
-
 def test_scope_affiliation_and_missing_envelope_are_diagnostics():
     scope = uuid4()
     focus = uuid4()
     value = series(scope, focus)
-    p = projection((legacy(scope),), (value,))
-    assert "ELIGIBILITY_AFFILIATION_MISMATCH" in {i.code for i in p.issues}
+    # Incorrect parent ownership must remain an actionable diagnosis.
     p = projection((legacy(scope),), (value,),
-                   affiliations=(ScopeAffiliation(focus, scope, "owner", START, 1),))
+                   affiliations=(ScopeAffiliation(focus, PARENT, "owner", START, 1),))
+    assert "ELIGIBILITY_AFFILIATION_MISMATCH" in {i.code for i in p.issues}
+    p = projection((legacy(scope),), (value,))
     assert not p.issues
-    no_envelope = projection((), (series(compatibility_scope_id("owner"), uuid4()),))
+    no_envelope = projection((), (series(PARENT, uuid4()),))
     assert no_envelope.physical_minutes == 0
     assert "ELIGIBILITY_OUTSIDE_PHYSICAL_ENVELOPE" in {
         i.code for i in no_envelope.issues}
@@ -187,7 +180,7 @@ def test_new_admission_cannot_use_legacy_manual_null_block():
     from zoneinfo import ZoneInfo
     from app.domain.capacity import AvailabilityBlock
 
-    scope = compatibility_scope_id("owner")
+    scope = PARENT
     zone = ZoneInfo("America/Toronto")
     manual = AvailabilityBlock(
         week_start=START,
@@ -199,9 +192,11 @@ def test_new_admission_cannot_use_legacy_manual_null_block():
         (), (), (manual,), (), START, START + timedelta(days=7),
         "America/Toronto", compatibility_id=scope,
     )
+    leaf = uuid4()
     result = project_eligibility(
-        old, (series(scope, uuid4()),), (), START, START + timedelta(days=7),
+        old, (series(scope, leaf),), (), START, START + timedelta(days=7),
         "America/Toronto", compatibility_id=scope,
+        affiliations=(ScopeAffiliation(leaf, scope, "owner", START, 1),),
     )
     assert result.physical_minutes == 120
     assert not result.potential_minutes
@@ -210,7 +205,7 @@ def test_new_admission_cannot_use_legacy_manual_null_block():
 
 def test_move_one_permission_and_keep_the_other_original():
     from datetime import datetime, timezone
-    scope = compatibility_scope_id("owner")
+    scope = PARENT
     focus, meetings = uuid4(), uuid4()
     f = series(scope, focus)
     m = series(scope, meetings)
@@ -227,3 +222,12 @@ def test_move_one_permission_and_keep_the_other_original():
     assert fragments[0].starts_at.hour == 18
     assert dict(result.potential_minutes) == {focus: 120, meetings: 120}
 
+def test_parentless_historical_exclusive_work_type_is_rejected_explicitly():
+    scope = PARENT
+    focus = uuid4()
+    with pytest.raises(ValueError, match="real parent"):
+        projection(
+            (legacy(scope), legacy(scope, kind=RuleKind.CATEGORIZED,
+                                   work_type=focus, mode=AvailabilityMode.PROTECTED)),
+            (series(scope, uuid4()),),
+        )

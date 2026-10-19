@@ -7,6 +7,7 @@ from typing import Protocol, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.application.uow import UnitOfWork
+from app.application.planning_availability import effective_week
 from app.domain.calendar import (
     CalendarCapacity, CalendarCommitment, calculate_calendar_capacity,
 )
@@ -27,7 +28,8 @@ class CalendarWeek:
 
 
 def read_calendar_week(
-    uow: UnitOfWork, reader: CalendarReader, week_start: date, timezone_name: str
+    uow: UnitOfWork, reader: CalendarReader, week_start: date, timezone_name: str,
+    owner_id: str = "urn:taskplanner:local",
 ) -> CalendarWeek:
     validate_week_start(week_start)
     try:
@@ -42,7 +44,8 @@ def read_calendar_week(
         key=lambda event: (event.starts_at, event.calendar_id, event.event_id),
     ))
     with uow:
-        manual_blocks = tuple(uow.availability.list_week(week_start))
+        manual_blocks = effective_week(
+            uow, owner_id, week_start, timezone_name).blocks
     return CalendarWeek(
         timezone_name=timezone_name,
         capacity=calculate_calendar_capacity(week_start, manual_blocks, commitments),

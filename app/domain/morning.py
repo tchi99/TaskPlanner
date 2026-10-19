@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from enum import StrEnum
-from typing import Sequence
+from typing import Callable, Sequence
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -65,6 +65,7 @@ def build_morning_brief(
     aggregates: Sequence[TaskAggregate],
     inbox_count: int,
     *, manual_block_count: int | None = None,
+    capacity_evaluator: Callable[[Sequence[TaskAggregate]], WeeklyCapacityEvaluation] | None = None,
 ) -> MorningBrief:
     """Summarize facts without selecting a day plan or suggesting an accepted move."""
     try:
@@ -77,7 +78,8 @@ def build_morning_brief(
     for aggregate in aggregates:
         if aggregate.task.status not in {TaskStatus.TODO, TaskStatus.IN_PROGRESS}:
             raise ValueError("morning candidates must be open clarified tasks")
-    weekly = evaluate_week(monday, blocks, aggregates)
+    weekly = (capacity_evaluator(aggregates) if capacity_evaluator
+              else evaluate_week(monday, blocks, aggregates))
 
     # Clip manual availability to the requested local civil day, including
     # overnight blocks and DST transitions. This is *capacity*, not a booking.

@@ -65,6 +65,7 @@ class CapacityStatus(StrEnum):
     FEASIBLE = "FEASIBLE"
     INCOMPLETE = "INCOMPLETE"
     OVER_CAPACITY = "OVER_CAPACITY"
+    PLACEMENT_NOT_FOUND = "PLACEMENT_NOT_FOUND"
 
 
 @dataclass(frozen=True, slots=True)

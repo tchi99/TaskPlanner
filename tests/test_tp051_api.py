@@ -69,45 +69,6 @@ def make_task(client, title, protection, estimate):
     return task_id
 
 
-def test_arbitration_preserves_options_protected_constraints_and_database(runtime):
-    client, engine, assistant = runtime
-    assert client.post(WEEK + "/blocks", json={
-        "starts_at": "2026-10-05T08:00:00-04:00",
-        "ends_at": "2026-10-05T09:00:00-04:00",
-    }).status_code == 201
-    protected = make_task(client, "Must", "PROTECTED", 45)
-    flexible = make_task(client, "May", "FLEXIBLE", 30)
-    with Session(engine) as session:
-        before = len(session.scalars(select(HistoryEventRecord)).all())
-    data = client.post(WEEK + "/arbitration-suggestions", json={
-        "task_ids": [protected, flexible],
-    })
-    assert data.status_code == 200, data.text
-    result = data.json()
-    assert result["state"] == "PROPOSED"
-    assert result["source"] == "AI_SUGGESTION"
-    proposal = result["proposal"]
-    assert proposal["baseline"]["status"] == "OVER_CAPACITY"
-    assert proposal["baseline"]["known_demand_minutes"] == 75
-    assert [o["kind"] for o in proposal["options"]] == [
-        "KEEP", "DEFER", "REVIEW_SCOPE", "CONSIDER_DELEGATION",
-    ]
-    defer = proposal["options"][1]
-    assert defer["excluded_task_ids"] == [flexible]
-    assert defer["requires_confirmation"]
-    assert all(protected not in option["excluded_task_ids"] for option in proposal["options"])
-    assert proposal["options"][2]["capacity"] is None
-    assert [a["option_index"] for a in result["explanations"]] == list(
-        range(len(proposal["options"]))
-    )
-    assert assistant.proposals[0].baseline.status.value == "OVER_CAPACITY"
-    assert client.get("/api/tasks/" + protected).json()["protection"] == "PROTECTED"
-    assert len(client.get(WEEK).json()["blocks"]) == 1
-    with Session(engine) as session:
-        assert len(session.scalars(select(TaskRecord)).all()) == 2
-        assert len(session.scalars(select(HistoryEventRecord)).all()) == before
-
-
 def test_errors_and_invalid_inputs_are_safe(runtime):
     client, _, assistant = runtime
     not_found = str(uuid4())

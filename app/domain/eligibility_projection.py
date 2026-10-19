@@ -116,9 +116,6 @@ def project_eligibility(
         # It cannot silently become a shared eligibility envelope.
         manual_strict = any(source.startswith("MANUAL:") for source in base.sources)
         if base.work_type_id is not None or manual_strict:
-            if base.work_type_id is not None:
-                selections.append(EligibilityChoice(
-                    base.work_type_id, None, base.sources, True, base.mode))
             if touching:
                 issues.append(EffectiveIssue(
                     "ELIGIBILITY_OVER_LEGACY_EXCLUSIVE", start, end,

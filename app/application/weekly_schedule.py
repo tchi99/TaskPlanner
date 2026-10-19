@@ -129,11 +129,15 @@ def _validate(draft: WeeklyDraft, uow: UnitOfWork, owner: str) -> dict:
     if draft.effective_from <= today:
         raise ValueError("weekly changes must take effect tomorrow or later (local civil date)")
     keys = {}
-    valid_types = {v.id for v in uow.work_types.list_all()}
+    valid_types = {v.id for v in uow.work_types.list_owner(owner)}
     for section in draft.sections:
         day = section.weekday
         if type(day) is not int or not 0 <= day <= 6:
             raise ValueError("weekday must be 0..6")
+        if section.kind is not RuleKind.GENERAL:
+            raise ValueError("only parent GENERAL envelopes can be edited here")
+        if section.scope_id is None:
+            raise ValueError("a real owned parent is required for each envelope")
         if section.kind is RuleKind.GENERAL and section.work_type_id is not None:
             raise ValueError("GENERAL section must use the NULL compartment")
         if section.kind is RuleKind.CATEGORIZED and section.work_type_id not in valid_types:
@@ -147,7 +151,7 @@ def _validate(draft: WeeklyDraft, uow: UnitOfWork, owner: str) -> dict:
                 raise ValueError("legacy cells cannot create categorized intervals outside compatibility")
         if section.scope_id is not None:
             scope = uow.schedule_scopes.get(owner, section.scope_id)
-            if scope is None or scope.is_compatibility or scope.state != "ACTIVE":
+            if scope is None or scope.state != "ACTIVE":
                 raise ValueError("section scope is not active or owned by this user")
             if section.kind is RuleKind.CATEGORIZED:
                 member = effective_scope(
@@ -595,8 +599,15 @@ def read_weekly(uow: UnitOfWork, owner: str, effect: date, zone: str,
                 scope_id: UUID | None = None):
     # The same future-date safety rule governs both read projection and writes.
     with uow:
-        _validate(WeeklyDraft(effect, zone, (Section(0, RuleKind.GENERAL, None, (), scope_id),), {}),
-                  uow, owner)
+        if scope_id is None:
+            parents = uow.schedule_scopes.list_owner(owner)
+            scope_id = parents[0].id if parents else None
+        if scope_id is not None:
+            _validate(WeeklyDraft(effect, zone, (Section(0, RuleKind.GENERAL, None, (), scope_id),), {}),
+                      uow, owner)
+        else:
+            if effect <= datetime.now(ZoneInfo(zone)).date():
+                raise ValueError("weekly changes must take effect tomorrow or later")
         rules = tuple(uow.recurring_availability.list_owner(owner))
         by_key = {}
         for rule in rules:
@@ -635,6 +646,7 @@ def read_weekly(uow: UnitOfWork, owner: str, effect: date, zone: str,
                  "effective_from": rev.effective_from.isoformat(),
                  "supersedes_future": rev.supersedes_future}
                 for r in rules for rev in r.revisions if rev.effective_from > effect
+                and rev.scope_id == scope_id
             ],
         }
 

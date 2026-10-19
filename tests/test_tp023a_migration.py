@@ -1,4 +1,8 @@
-"""TP-023A preserves legacy recurring revisions and supports same-date records."""
+"""TP-026 fresh-only Alembic contract (ADR-0025).
+
+Historical upgrade-in-place assertions are no longer valid. Every check below
+exercises the new installation or the fail-closed guard without bypassing CI.
+"""
 import os
 from pathlib import Path
 import sqlite3
@@ -11,82 +15,44 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def migrate(path, revision, action="upgrade", *, succeed=True):
-    result = subprocess.run(
-        [sys.executable, "-m", "alembic", action, revision],
-        cwd=ROOT, check=False, capture_output=True, text=True,
-        env={**os.environ, "TASKPLANNER_DATABASE_URL": f"sqlite:///{path}"},
+def migrate(path, *, command="upgrade", target="head"):
+    return subprocess.run(
+        [sys.executable, "-m", "alembic", command, target], cwd=ROOT,
+        env={**os.environ, "TASKPLANNER_DATABASE_URL": f"sqlite:///{path}",
+             "TASKPLANNER_ENV": "test", "TASKPLANNER_AUTH_MODE": "local"},
+        capture_output=True, text=True, check=False,
     )
-    if succeed:
-        assert result.returncode == 0, result.stderr
-    else:
-        assert result.returncode != 0
-    return result
 
 
-def test_legacy_revisions_preserved_same_date_and_downgrade_guard(tmp_path):
-    path = tmp_path / "legacy.sqlite"
-    migrate(path, "0014_tp022r")
-    rid = str(uuid4())
+def fresh(tmp_path):
+    path = tmp_path / "fresh.sqlite"
+    result = migrate(path)
+    assert result.returncode == 0, result.stderr
+    return path
+
+
+def tables(db):
+    return {row[0] for row in db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+
+
+def columns(db, name):
+    return {row[1]: row for row in db.execute(f"PRAGMA table_info({name})")}
+
+
+def test_fresh_atomic_weekly_command_receipt_is_owner_scoped(tmp_path):
+    path = fresh(tmp_path)
     with sqlite3.connect(path) as db:
-        db.execute(
-            "INSERT INTO recurring_availability_rules "
-            "(id,owner_id,version,created_at) VALUES (?,?,1,?)",
-            (rid, "migration-owner", "2026-10-14T12:00:00Z"),
-        )
-        db.execute(
-            "INSERT INTO recurring_availability_revisions "
-            "(id, rule_id, number, effective_from, valid_until, timezone_name,"
-            "days_of_week, starts_at_local, ends_at_local, kind, work_type_id,"
-            "mode, enabled, start_fold, end_fold, recorded_at) "
-            "VALUES (?,?,1,'2027-01-01',NULL,'America/Toronto','[1]',"
-            "'09:00','10:00','GENERAL',NULL,NULL,1,NULL,NULL,?)",
-            (str(uuid4()), rid, "2026-10-14T12:00:00Z"),
-        )
-    migrate(path, "head")
-    with sqlite3.connect(path) as db:
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0019_tp025d",
-        )
-        assert db.execute(
-            "SELECT number, effective_from, supersedes_future "
-            "FROM recurring_availability_revisions WHERE rule_id=?", (rid,),
-        ).fetchall() == [(1, "2027-01-01", 0)]
-        assert "weekly_schedule_commands" in {
-            row[0] for row in db.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
-        }
-        db.execute(
-            "UPDATE recurring_availability_rules SET version=2 WHERE id=?", (rid,),
-        )
-        db.execute(
-            "INSERT INTO recurring_availability_revisions "
-            "(id, rule_id, number, effective_from, valid_until, timezone_name,"
-            "days_of_week, starts_at_local, ends_at_local, kind, work_type_id,"
-            "mode, enabled, start_fold, end_fold, recorded_at, supersedes_future) "
-            "VALUES (?,?,2,'2027-01-01',NULL,'America/Toronto','[1]',"
-            "'09:00','10:00','GENERAL',NULL,NULL,0,NULL,NULL,?,1)",
-            (str(uuid4()), rid, "2026-10-15T12:00:00Z"),
-        )
-        assert db.execute(
-            "SELECT COUNT(*) FROM recurring_availability_revisions "
-            "WHERE rule_id=? AND effective_from='2027-01-01'", (rid,),
-        ).fetchone()[0] == 2
-    migrate(path, "0014_tp022r", "downgrade", succeed=False)
+        assert "weekly_schedule_commands" in tables(db)
+        cols = columns(db, "weekly_schedule_commands")
+        assert {"owner_id", "command_id", "payload_hash",
+                "result", "created_at"} <= set(cols)
+        assert cols["owner_id"][5] > 0 and cols["command_id"][5] > 0
+        assert db.execute("SELECT COUNT(*) FROM weekly_schedule_commands").fetchone() == (0,)
 
 
-def test_tp024a_upgrade_preserves_tp023a_and_blocks_unsafe_downgrade(tmp_path):
-    path = tmp_path / "empty.sqlite"
-    migrate(path, "head")
-    migrate(path, "0015_tp023a", "downgrade")
+def test_fresh_root_has_no_dated_work_type_affiliation_tables(tmp_path):
+    path = fresh(tmp_path)
     with sqlite3.connect(path) as db:
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0015_tp023a",
-        )
-        assert "scope_id" not in {
-            row[1] for row in db.execute(
-                "PRAGMA table_info(recurring_availability_revisions)"
-            )
-        }
-    migrate(path, "head")
+        assert "work_type_scope_assignments" not in tables(db)
+        assert "work_type_scope_versions" not in tables(db)

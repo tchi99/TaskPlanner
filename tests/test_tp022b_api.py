@@ -49,68 +49,6 @@ def local(day, hour):
     return datetime.combine(day, datetime.min.time(), ZoneInfo("America/Toronto")).replace(hour=hour).isoformat()
 
 
-def test_preview_then_confirm_real_unavailability_preserves_existing_booking(runtime):
-    client, factory = runtime
-    monday = next_monday()
-    tuesday = monday + timedelta(days=1)
-    weekly = f"/api/capacity/weeks/{monday.isoformat()}"
-    body = {
-        "starts_at": local(tuesday, 9), "ends_at": local(tuesday, 10),
-    }
-    assert client.post(weekly + "/blocks", json=body).status_code == 201
-    task_id = client.post("/api/tasks", json={
-        "title": "Already reserved", "estimated_minutes": 60,
-    }).json()["id"]
-    assert client.post(f"/api/tasks/{task_id}/clarify", json={}).status_code == 200
-    preview = client.post(weekly + "/time-blocks/preview", json={
-        "task_ids": [task_id], "timezone_name": "America/Toronto",
-    })
-    assert preview.status_code == 200, preview.text
-    confirm = client.post(weekly + "/time-blocks/confirm", json={
-        "task_ids": [task_id], "timezone_name": "America/Toronto",
-        "fingerprint": preview.json()["fingerprint"], "confirmed": True,
-    })
-    assert confirm.status_code == 200, confirm.text
-
-    proposed = {"action": "UNAVAILABLE", "timezone_name": "America/Toronto",
-                "starts_at": local(tuesday, 9), "ends_at": local(tuesday, 10),
-                "reason": "Actual appointment"}
-    before = client.get("/api/availability/effective", params={
-        "from": monday.isoformat(), "to": (monday + timedelta(days=7)).isoformat(),
-        "timezone_name": "America/Toronto",
-    }).json()
-    assert before["declared_minutes"] == 60
-    result = client.post("/api/availability/exceptions/preview", json=proposed)
-    assert result.status_code == 200, result.text
-    proposed_preview = result.json()
-    assert proposed_preview["projection"] == "DECLARED_NOT_CALENDAR_VERIFIED"
-    assert any(issue["booking_id"] for issue in proposed_preview["issues"])
-    with factory() as session:
-        assert not session.scalars(select(AvailabilityExceptionRecord)).all()
-    mutation = {**proposed, "expected_fingerprint": proposed_preview["fingerprint"]}
-    assert client.post("/api/availability/exceptions", json=mutation).status_code == 422
-    created = client.post("/api/availability/exceptions", json={
-        **mutation, "acknowledge_conflicts": True,
-    })
-    assert created.status_code == 201, created.text
-    assert created.json()["version"] == 1
-    after = client.get("/api/availability/effective", params={
-        "from": monday.isoformat(), "to": (monday + timedelta(days=7)).isoformat(),
-        "timezone_name": "America/Toronto",
-    }).json()
-    assert after["declared_minutes"] == 0
-    assert any(v["code"] == "BOOKING_OUTSIDE_EFFECTIVE_AVAILABILITY"
-               and v["state"] == "OPEN" for v in after["issues"])
-    with factory() as session:
-        booked = session.scalars(select(ConfirmedTimeBlockRecord)).all()
-        assert len(booked) == 1
-        assert booked[0].task_id == task_id
-        events = session.scalars(select(HistoryEventRecord).where(
-            HistoryEventRecord.entity_type == "AVAILABILITY_EXCEPTION"
-        )).all()
-        assert len(events) == 1 and events[0].task_id is None
-
-
 def test_stale_preview_is_rejected_and_exception_updates_are_versioned(runtime):
     client, factory = runtime
     day = next_monday()

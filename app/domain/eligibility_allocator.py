@@ -74,9 +74,6 @@ def suggest_eligible_blocks(
         raise ValueError("candidate tasks must be nonempty and unique")
     # Every key is ONE physical minute. A shared permission adds choices, not keys.
     eligible: dict[int, tuple[UUID | None, tuple]] = {}
-    # Unclassified NULL capacity is not a cross-parent commons: only an
-    # unambiguous one-parent week can admit an unclassified work unit.
-    scopes = {fragment.scope_id for fragment in projection.fragments}
     for fragment in projection.fragments:
         for minute in range(max(low, _minute(fragment.starts_at)),
                             min(high, _minute(fragment.ends_at))):
@@ -84,10 +81,7 @@ def suggest_eligible_blocks(
                 raise ValueError("physical projection overlaps itself")
             if fragment.choices:
                 eligible[minute] = (fragment.scope_id, fragment.choices)
-            elif fragment.null_residual and len(scopes) == 1:
-                eligible[minute] = (fragment.scope_id, (
-                    EligibilityChoice(None, None, fragment.sources, exclusive=True),
-                ))
+            # Residual NULL remains physical capacity but is never allocatable.
     busy_ranges = [
         (floor(v.starts_at.astimezone(timezone.utc).timestamp() / 60),
          ceil(v.ends_at.astimezone(timezone.utc).timestamp() / 60))
@@ -131,6 +125,9 @@ def suggest_eligible_blocks(
                                                     if task.due_at else high),
                 "order": order, "position": position,
                 "blocked": ("ALREADY_CONFIRMED" if task.id in already else
+                            "UNCLASSIFIED_WORK_TYPE" if work_type is None else
+                            "WORK_TYPE_WITHOUT_REAL_PARENT" if
+                                work_type_scopes is not None and work_type not in work_type_scopes else
                             "ESTIMATE_UNKNOWN" if estimate is None else None),
             })
         snapshot_tasks.append(task_detail)
@@ -157,7 +154,8 @@ def suggest_eligible_blocks(
         for minute in range(start, end):
             scope_choices = eligible.get(minute)
             matches = [] if scope_choices is None else [
-                v for v in scope_choices[1] if v.work_type_id == unit["type"]]
+                v for v in scope_choices[1] if v.work_type_id == unit["type"]
+                and (work_type_scopes is None or work_type_scopes.get(unit["type"]) == scope_choices[0])]
             if minute not in free or not matches:
                 break
             matching.append((scope_choices[0], matches[0]))
@@ -190,7 +188,9 @@ def suggest_eligible_blocks(
             if not unit["remaining"] or minute >= unit["due"] or not ready(unit):
                 continue
             for choice in choices:
-                if choice.work_type_id == unit["type"]:
+                if (choice.work_type_id == unit["type"] and
+                        (work_type_scopes is None or
+                         work_type_scopes.get(unit["type"]) == scope)):
                     competitors.append(((
                         protection[unit["protection"]],
                         choice.priority_rank if choice.priority_rank is not None else 10**9,
@@ -205,35 +205,6 @@ def suggest_eligible_blocks(
                                "CONTEXTUAL_PRIORITY" if choice.priority_rank is not None
                                else "ADMISSIBLE_FREE", None)
         winner["remaining"] -= 1
-    # An exclusive legacy PREFERRED declaration can still be offered as a
-    # transfer, but it is never silently accepted and never crosses parents.
-    if offer_transfers:
-        unused = set(eligible) - occupied - set(assignments)
-        for unit in units:
-            if unit["blocked"] or not unit["remaining"] or unit["type"] is None:
-                continue
-            if (unit["task"], unit["segment"]) in fixed_keys:
-                continue
-            target_scope = (work_type_scopes or {}).get(unit["type"])
-            for minute in sorted(unused):
-                if not unit["remaining"]:
-                    break
-                if minute >= unit["due"]:
-                    continue
-                scope, choices = eligible[minute]
-                donors = [choice for choice in choices
-                          if choice.exclusive
-                          and choice.legacy_mode is AvailabilityMode.PREFERRED
-                          and choice.work_type_id != unit["type"]
-                          and target_scope is not None and scope == target_scope]
-                if not donors:
-                    continue
-                donor = donors[0]
-                assignments[minute] = (
-                    unit, scope, donor.sources, None, "PREFERRED_TRANSFER",
-                    donor.work_type_id)
-                unused.remove(minute)
-                unit["remaining"] -= 1
     # Group consecutive allocations with the same unit and provenance.
     suggestions = []
     sequence = sorted(assignments)
@@ -267,7 +238,7 @@ def suggest_eligible_blocks(
         or unit["blocked"] or "NO_PLACEMENT_FOUND_BY_GREEDY_STRATEGY")
         for unit in units if unit["remaining"] is None or unit["remaining"] > 0)
     snapshot = {
-        "algorithm": "TP-025B/contextual-v1", "week": week_start.isoformat(),
+        "algorithm": "TP-026A/unified-typed-v1", "week": week_start.isoformat(),
         "timezone": timezone_name, "availability_revision": availability_fingerprint,
         "tasks": snapshot_tasks, "offer_transfers": offer_transfers,
         "fixed": [(str(v.task_id), str(v.segment_id), v.starts_at.isoformat(),

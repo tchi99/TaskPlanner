@@ -72,11 +72,17 @@ class DecisionOutcome(StrEnum):
 @dataclass(frozen=True, slots=True)
 class WorkType:
     name: str
+    scope_id: UUID
     description: str | None = None
     id: UUID = field(default_factory=uuid4)
+    version: int = 1
 
     def __post_init__(self) -> None:
         _require_text(self.name, "name")
+        if not isinstance(self.scope_id, UUID):
+            raise ValueError("a real parent scope_id is required")
+        if self.version < 1:
+            raise ValueError("work type version must be positive")
 
 
 @dataclass(frozen=True, slots=True)
