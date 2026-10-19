@@ -205,7 +205,7 @@ async function prepareParentAndType(page: Page) {
 
 async function prepareEnvelope(page: Page) {
   const editor = page.getByRole("region", { name: "Éditeur hebdomadaire" });
-  const details = page.locator("details").filter({ has: editor });
+  const details = page.locator("details").filter({ has: page.locator("section.weeklyEditor") });
   await editor.getByRole("button", { name: "Ajouter une plage au Mardi" }).click();
   await editor.getByRole("button", { name: "Prévisualiser les changements" }).click();
   await expect(editor.getByText(/Capacité déclarée sur 93 jours/)).toBeVisible();
