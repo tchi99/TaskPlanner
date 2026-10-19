@@ -8,6 +8,15 @@ const seriesId = "33333333-3333-4333-8333-333333333333";
 const ruleId = "44444444-4444-4444-8444-444444444444";
 const headers = { contentType: "application/json" };
 
+// Mirror app/application/weekly_schedule.py::_key_str: the UI labels each changed
+// cell by the full backend section identity, not by weekday alone.
+function sectionKey(section: {
+  weekday: number; kind: string; work_type_id: string | null; scope_id?: string | null;
+}, timezone: string): string {
+  const base = `${section.weekday}:${section.kind}:${section.work_type_id || "NULL"}:${timezone}`;
+  return section.scope_id ? base + ":SCOPE:" + section.scope_id : base;
+}
+
 async function setup(page: Page, { stale = false, existingBooking = false } = {}) {
   const requests: { path: string; method: string; body: any }[] = [];
   let parents: { id: string; name: string; version: number; state: "ACTIVE" | "INACTIVE" }[] = [];
@@ -71,9 +80,9 @@ async function setup(page: Page, { stale = false, existingBooking = false } = {}
     if (path === "/api/availability/weekly-schedule/preview") return respond({
       fingerprint: "f".repeat(64), has_changes: true, projection_days: 93,
       before_declared_minutes_93d: envelope ? 180 : 0, after_declared_minutes_93d: 9000,
-      changed_sections: body.sections.map((section: { weekday: number }) => String(section.weekday)),
+      changed_sections: body.sections.map((section: { weekday: number; kind: string; work_type_id: string | null; scope_id?: string | null }) => sectionKey(section, body.timezone_name)),
       cell_changes: body.sections.map((section: { weekday: number; slots: unknown[] }) => ({
-        section: String(section.weekday), before: [], after: section.slots, previous_future: [],
+        section: sectionKey(section, body.timezone_name), before: [], after: section.slots, previous_future: [],
       })),
       series_cutovers: [], exception_remaps: [], unresolved_exceptions: [],
       booking_conflicts: [], invalid_conflicts: [], invalid_diagnostics: [],
