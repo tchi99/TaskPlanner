@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "./auth";
 import { EligibilityContextEditor } from "./EligibilityContextEditor";
-import { scopeForAt, type ScopeCatalog } from "./ScheduleCategories";
+import type { ScopeCatalog } from "./ScheduleCategories";
 import "./weekly-eligibility.css";
 
-type WorkType = { id: string; name: string };
+type WorkType = { id: string; name: string; scope_id: string };
 type TaskChoice = { id: string; title: string; status: string; work_type_id: string | null };
 type SourceDetail = {
   series_id: string; revision: number; effective_from: string;
@@ -61,7 +61,7 @@ type Layer = "configuration" | "occupation" | "proposed";
 type BarDetail = { title: string; dates: string; notes: string[] };
 type EditTarget = {
   scopeId: string; workTypeId: string; seriesId: string | null;
-  legacyRuleId: string | null; selectedDate: string;
+  selectedDate: string;
 };
 const weekdays = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 
@@ -110,15 +110,16 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
   const [proposalError, setProposalError] = useState("");
   const [previewBusy, setPreviewBusy] = useState(false);
   const [retry, setRetry] = useState(0);
-  const selected = scopeId || catalog?.compatibility_scope_id || "";
+  const selected = scopeId || "";
 
   useEffect(() => {
     let active = true;
     setLoading(true); setError(""); setSnapshot(null); setDetail(null);
     setEditTargets([]); setEditorTarget(null);
     setProposal(null); setProposalError("");
+    if (!scopeId) { setLoading(false); return; }
     const query = new URLSearchParams({ week_start: week, timezone_name: zone });
-    if (scopeId) query.set("scope_id", scopeId);
+    query.set("scope_id", scopeId);
     void readApi<Snapshot>("/api/availability/eligibility-week?" + query)
       .then((value) => { if (active) setSnapshot(value); })
       .catch((reason: unknown) => {
@@ -138,41 +139,32 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
   }
   function showFragment(item: Fragment, choice: Choice) {
     setEditorTarget(null);
-    const series = choice.exclusive ? [] : choice.source_details;
-    const legacy = choice.exclusive ? choice.sources
-      .filter((value) => value.startsWith("RULE:"))
-      .map((value) => value.split(":")[1]).filter((id, index, values) => values.indexOf(id) === index) : [];
-    const targets: EditTarget[] = choice.work_type_id === null ? [] : [
-      ...series.map((source) => ({ scopeId: item.scope_id,
-        workTypeId: choice.work_type_id!, seriesId: source.series_id,
-        legacyRuleId: null, selectedDate: item.local_date })),
-      ...legacy.map((id) => ({ scopeId: item.scope_id,
-        workTypeId: choice.work_type_id!, seriesId: null,
-        legacyRuleId: id, selectedDate: item.local_date })),
-    ];
-    const otherTypes = catalog ? workTypes.filter((type) =>
-      scopeForAt(type.id, item.local_date, catalog) === item.scope_id &&
-      !item.choices.some((other) => other.work_type_id === type.id)) : [];
-    setEditTargets([...targets, ...otherTypes.map((type) => ({
-      scopeId: item.scope_id, workTypeId: type.id,
-      seriesId: null, legacyRuleId: null, selectedDate: item.local_date,
-    }))]);
+    const sources = Array.from(new Set(choice.source_details.map((detail) => detail.series_id)));
+    const selectedDate = item.local_date;
+    setEditTargets([
+      ...sources.map((seriesId) => ({
+        scopeId: item.scope_id, workTypeId: choice.work_type_id || "",
+        seriesId, selectedDate,
+      })),
+      ...(choice.work_type_id ? [{
+        scopeId: item.scope_id, workTypeId: choice.work_type_id,
+        seriesId: null, selectedDate,
+      }] : []),
+    ]);
     setDetail({
       title: label(choice.work_type_id),
       dates: item.local_date + " · " + timeLabel(item.starts_at, zone) + " → " +
-        timeLabel(item.ends_at, zone) + " · " + item.minutes + " min réelles",
+        timeLabel(item.ends_at, zone) + " · " + item.minutes + " min physiques",
       notes: [
         "Parent : " + (catalog?.scopes.find((v) => v.id === item.scope_id)?.name || item.scope_id),
         choice.priority_rank === null ? "Priorité contextuelle : neutre" :
           "Rang contextuel : " + choice.priority_rank,
-        choice.exclusive ? "Affectation exclusive historique · " + (choice.legacy_mode || "stricte") :
-          "Admissibilité partagée : aucun temps réservé",
-        "Autres activités simultanément admissibles : " +
+        "Admissibilité partagée : aucun temps réservé",
+        "Autres activités admissibles : " +
           (item.choices.filter((other) => other.work_type_id !== choice.work_type_id)
             .map((other) => label(other.work_type_id)).join(", ") || "aucune"),
         ...choice.source_details.map((v) => "Série " + v.series_id + " · révision " +
           v.revision + " · effet " + v.effective_from + " · " + v.timezone_name),
-        "Provenances : " + choice.sources.join(" ; "),
       ],
     });
   }
@@ -211,9 +203,9 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
     <div className="eligControls">
       <label>Parent
         <select aria-label="Parent de la visualisation" value={selected} onChange={(event) =>
-          onSelectScope(event.target.value === catalog?.compatibility_scope_id ? "" : event.target.value)}>
-          <option value={catalog?.compatibility_scope_id || ""}>Compatibilité (héritage)</option>
-          {catalog?.scopes.filter((value) => !value.is_compatibility).map((scope) =>
+          onSelectScope(event.target.value)}>
+          <option value="">Choisir un parent</option>
+          {catalog?.scopes.filter((value) => value.state === "ACTIVE").map((scope) =>
             <option key={scope.id} value={scope.id}>{scope.name}</option>)}
         </select>
       </label>
@@ -287,7 +279,7 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
             const occupations = snapshot.occupations.filter((item) => item.weekday === day.weekday &&
               (!workTypeFilter || item.kind === "GOOGLE_VERIFIED" || item.work_type_id === workTypeFilter));
             const proposals = proposal?.suggestions.filter((item) =>
-              (item.scope_id || catalog?.compatibility_scope_id) === snapshot.scope_id &&
+              item.scope_id === snapshot.scope_id &&
               (!workTypeFilter || item.work_type_id === workTypeFilter) &&
               Date.parse(item.starts_at) < Date.parse(day.ends_at) &&
               Date.parse(item.ends_at) > Date.parse(day.starts_at)) || [];
@@ -358,19 +350,18 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
         <h4>{detail.title}</h4><p>{detail.dates}</p>
         <ul>{detail.notes.map((note, index) => <li key={index}>{note}</li>)}</ul>
         {layer === "configuration" && editTargets.map((target, index) =>
-          <button key={target.seriesId || target.legacyRuleId || index} type="button"
+          <button key={target.seriesId || index} type="button"
             onClick={() => setEditorTarget(target)}>
-            {target.legacyRuleId ? "Convertir la règle historique " + target.legacyRuleId.slice(0, 8) :
-              target.seriesId ? "Modifier la permission " + target.seriesId.slice(0, 8) :
+            {target.seriesId ? "Modifier la permission " + target.seriesId.slice(0, 8) :
               "Ajouter une permission : " + label(target.workTypeId)}
           </button>)}
         <button type="button" onClick={() => { setDetail(null); setEditTargets([]);
           setEditorTarget(null); }}>Fermer les détails</button>
       </section>}
       {editorTarget && <EligibilityContextEditor
-        key={(editorTarget.seriesId || editorTarget.legacyRuleId || editorTarget.workTypeId) + ":" + editorTarget.selectedDate}
+        key={(editorTarget.seriesId || editorTarget.workTypeId) + ":" + editorTarget.selectedDate}
         scopeId={editorTarget.scopeId} workTypeId={editorTarget.workTypeId}
-        seriesId={editorTarget.seriesId} legacyRuleId={editorTarget.legacyRuleId}
+        seriesId={editorTarget.seriesId}
         selectedDate={editorTarget.selectedDate} zone={zone}
         onClose={() => setEditorTarget(null)}
         onSaved={() => { setEditorTarget(null); setEditTargets([]); setDetail(null);
@@ -396,7 +387,7 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
                 <td>{timeLabel(fragment.starts_at, zone)} – {timeLabel(fragment.ends_at, zone)}</td>
                 <td>{fragment.null_residual ? "NULL résiduel" : label(choice.work_type_id)}</td>
                 <td>{choice.priority_rank === null ? "Neutre" : "Rang " + choice.priority_rank}
-                  {choice.exclusive ? " · historique strict" : ""}</td>
+                  </td>
                 <td>{choice.sources.join(" ; ")}</td></tr>))}
           {snapshot.occupations.map((item, i) => <tr key={"o-" + i}>
             <td>{item.local_date}</td><td>{timeLabel(item.starts_at, zone)} – {timeLabel(item.ends_at, zone)}</td>

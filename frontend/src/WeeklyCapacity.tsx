@@ -1,17 +1,10 @@
 import { apiFetch } from "./auth";
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { TimeBlockPlanner } from "./TimeBlockPlanner";
 
 type WorkType = { id: string; name: string };
 type Task = { id: string; title: string; status: string };
 
-type AvailabilityBlock = {
-  id: string;
-  starts_at: string;
-  ends_at: string;
-  work_type_id: string | null;
-  minutes: number;
-};
 type Bucket = {
   work_type_id: string | null;
   available_minutes: number;
@@ -27,27 +20,6 @@ type Evaluation = {
   remaining_minutes: number;
   unestimated_units: number;
   by_work_type: Bucket[];
-};
-type Week = { blocks: AvailabilityBlock[]; capacity: Evaluation };
-type CalendarWeek = {
-  week_start: string;
-  timezone_name: string;
-  manual_available_minutes: number;
-  occupied_minutes: number;
-  remaining_minutes: number;
-  by_work_type: {
-    work_type_id: string | null;
-    manual_available_minutes: number;
-    occupied_minutes: number;
-    remaining_minutes: number;
-  }[];
-  commitments: {
-    calendar_id: string;
-    event_id: string;
-    title: string;
-    starts_at: string;
-    ends_at: string;
-  }[];
 };
 type ProposalOption = {
   id: string;
@@ -90,14 +62,6 @@ function monday(value: string): string {
   return localDate(day);
 }
 
-function localOffset(value: string): string {
-  const date = new Date(value);
-  const minutes = -date.getTimezoneOffset();
-  const sign = minutes >= 0 ? "+" : "-";
-  const absolute = Math.abs(minutes);
-  return `${value}:00${sign}${String(Math.floor(absolute / 60)).padStart(2, "0")}:${String(absolute % 60).padStart(2, "0")}`;
-}
-
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await apiFetch(url, options);
   if (!response.ok) {
@@ -121,40 +85,18 @@ export function WeeklyCapacity({
   workTypes: WorkType[];
 }) {
   const [weekStart, setWeekStart] = useState(() => monday(localDate(new Date())));
-  const [start, setStart] = useState(() => monday(localDate(new Date())) + "T09:00");
-  const [end, setEnd] = useState(() => monday(localDate(new Date())) + "T10:00");
-  const [workTypeId, setWorkTypeId] = useState("");
-  const [data, setData] = useState<Week | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [arbitration, setArbitration] = useState<Arbitration | null>(null);
-  const [calendar, setCalendar] = useState<CalendarWeek | null>(null);
-  const [calendarBusy, setCalendarBusy] = useState(false);
-  const [calendarError, setCalendarError] = useState("");
-  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [reloadKey, setReloadKey] = useState(0);
+
   const eligible = tasks.filter(
     (task) => task.status === "TODO" || task.status === "IN_PROGRESS"
   );
   const labelFor = (id: string | null) =>
     id === null ? "Non classé" : workTypes.find((type) => type.id === id)?.name ?? "Type inconnu";
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    setError("");
-    setEvaluation(null); setProposal(null); setArbitration(null); setCalendar(null); setCalendarError("");
-    request<Week>(`/api/capacity/weeks/${weekStart}`)
-      .then((week) => { if (active) setData(week); })
-      .catch((err: unknown) => {
-        if (active) { setData(null); setError(err instanceof Error ? err.message : "Erreur de chargement."); }
-      })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [weekStart, reloadKey]);
 
   useEffect(() => { setEvaluation(null); setProposal(null); setArbitration(null); }, [tasks]);
 
@@ -162,43 +104,8 @@ export function WeeklyCapacity({
     if (!value) return;
     const week = monday(value);
     setWeekStart(week);
-    setStart(week + "T09:00");
-    setEnd(week + "T10:00");
     setSelected([]);
-    setEvaluation(null); setProposal(null); setArbitration(null); setCalendar(null); setCalendarError("");
-  }
-
-  async function save(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true); setError("");
-    try {
-      await request<AvailabilityBlock>(`/api/capacity/weeks/${weekStart}/blocks`, {
-        method: "POST", headers,
-        body: JSON.stringify({
-          starts_at: localOffset(start),
-          ends_at: localOffset(end),
-          work_type_id: workTypeId || null,
-        }),
-      });
-      setReloadKey((value) => value + 1);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Échec de création du bloc.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function remove(id: string) {
-    setBusy(true); setError("");
-    try {
-      const response = await apiFetch(`/api/capacity/weeks/${weekStart}/blocks/${id}`, { method: "DELETE" });
-      if (!response.ok) throw new Error("Échec de suppression du bloc.");
-      setReloadKey((value) => value + 1);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Erreur.");
-    } finally {
-      setBusy(false);
-    }
+    setEvaluation(null); setProposal(null); setArbitration(null);
   }
 
   async function evaluate() {
@@ -248,21 +155,6 @@ export function WeeklyCapacity({
     }
   }
 
-  async function loadCalendar() {
-    setCalendarBusy(true); setCalendarError(""); setCalendar(null);
-    try {
-      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-      const result = await request<CalendarWeek>(
-        "/api/capacity/weeks/" + weekStart + "/calendar?timezone_name=" + encodeURIComponent(timezone)
-      );
-      setCalendar(result);
-    } catch (err: unknown) {
-      setCalendarError(err instanceof Error ? err.message : "Lecture du calendrier impossible.");
-    } finally {
-      setCalendarBusy(false);
-    }
-  }
-
   function toggle(id: string, checked: boolean) {
     setSelected((previous) =>
       checked ? [...previous, id] : previous.filter((current) => current !== id)
@@ -273,69 +165,14 @@ export function WeeklyCapacity({
   return (
     <section className="inbox capacityPanel">
       <h2>Capacité hebdomadaire</h2>
-      <p className="muted">Blocs disponibles saisis manuellement. Chaque type de travail a sa propre capacité. La vérification est une simulation sans changement au plan.</p>
+      <p className="muted">Cette vue utilise les capacités et permissions configurées dans
+        Disponibilités. Elle ne crée aucun bloc manuel parallèle.</p>
       <label>Semaine du lundi
         <input type="date" value={weekStart} onChange={(event) => changeWeek(event.target.value)} />
       </label>
       {error && <p role="alert" className="error">{error}</p>}
-      {loading ? <p>Chargement des disponibilités…</p> : (
-        <>
-          <p><strong>{data?.capacity.available_minutes ?? 0} min disponibles</strong> cette semaine</p>
-          {data?.blocks.length === 0 ? <p className="empty">Aucun bloc défini pour cette semaine.</p> : (
-            <ul className="capacityBlocks">
-              {data?.blocks.map((block) => (
-                <li key={block.id}>
-                  <span>{new Date(block.starts_at).toLocaleString()} – {new Date(block.ends_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {block.minutes} min · {labelFor(block.work_type_id)}</span>
-                  <button type="button" disabled={busy} onClick={() => void remove(block.id)}>Supprimer</button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <form onSubmit={(event) => void save(event)} className="capacityForm">
-            <div className="detailGrid">
-              <label>Début disponible<input required type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} /></label>
-              <label>Fin disponible<input required type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} /></label>
-              <label>Type de travail
-                <select value={workTypeId} onChange={(event) => setWorkTypeId(event.target.value)}>
-                  <option value="">Non classé</option>
-                  {workTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
-                </select>
-              </label>
-            </div>
-            <button disabled={busy} type="submit">Ajouter un bloc disponible</button>
-          </form>
-          <h3>Contexte Google Calendar (lecture seule)</h3>
-          <p className="muted">Les engagements occupés réduisent uniquement les blocs manuels qui les croisent.
-            Les catégories de temps ne deviennent pas des tâches. Cette lecture n'altère ni les blocs ni les simulations existantes.</p>
-          <button type="button" disabled={calendarBusy || busy}
-            onClick={() => void loadCalendar()}>
-            {calendarBusy ? "Lecture du calendrier…" : "Lire Google Calendar"}
-          </button>
-          {calendarError && <p className="error" role="alert">{calendarError}</p>}
-          {calendar?.week_start === weekStart && (
-            <div className="capacityResult" aria-live="polite">
-              <strong>{calendar.remaining_minutes} min disponibles après engagements Google Calendar</strong>
-              <p>{calendar.manual_available_minutes} min de blocs manuels − {calendar.occupied_minutes} min occupées
-                à l'intérieur de ces blocs.</p>
-              {calendar.by_work_type.map((bucket) => (
-                <p key={bucket.work_type_id ?? "unclassified"}>
-                  {labelFor(bucket.work_type_id)} : {bucket.remaining_minutes} min restantes
-                  {" "}({bucket.occupied_minutes} min occupées sur {bucket.manual_available_minutes} min manuelles)
-                </p>
-              ))}
-              {calendar.commitments.length === 0
-                ? <p className="muted">Aucun engagement occupé trouvé pour cette semaine.</p>
-                : <ul className="capacityBlocks">{calendar.commitments.map((event) => (
-                  <li key={event.calendar_id + ":" + event.event_id}>
-                    <span>{event.title} · {new Date(event.starts_at).toLocaleString()} –
-                      {" "}{new Date(event.ends_at).toLocaleString()}</span>
-                  </li>
-                ))}</ul>}
-              <p className="muted">Aucun événement n'est créé ou modifié. Les vérifications et propositions
-                ci-dessous utilisent encore la capacité manuelle brute; elles n'appliquent pas cet ajustement.</p>
-            </div>
-          )}
-          <h3>Vérifier une sélection pour cette semaine</h3>
+      <p className="muted">Évalue la sélection pour demander les minutes physiques calculées côté serveur.</p>
+        <h3>Vérifier une sélection pour cette semaine</h3>
           {eligible.length === 0 ? <p className="empty">Aucune tâche clarifiée ouverte à évaluer.</p> : (
             <fieldset className="capacitySelection">
               <legend>Tâches candidates (aucune affectation automatique)</legend>
@@ -411,16 +248,13 @@ export function WeeklyCapacity({
             </div>
           )}
           <TimeBlockPlanner
-            key={weekStart + ":" + selected.join(",") + ":" + reloadKey}
+            key={weekStart + ":" + selected.join(",")}
             weekStart={weekStart}
             taskIds={selected.filter((id) => eligible.some((task) => task.id === id))}
             taskNames={Object.fromEntries(tasks.map((task) => [task.id, task.title]))}
             workTypeNames={Object.fromEntries(workTypes.map((type) => [type.id, type.name]))}
-            onBookingChanged={() => { setEvaluation(null); setProposal(null); setArbitration(null);
-              setCalendar(null); setCalendarError(""); }}
+            onBookingChanged={() => { setEvaluation(null); setProposal(null); setArbitration(null); }}
           />
-        </>
-      )}
     </section>
   );
 }

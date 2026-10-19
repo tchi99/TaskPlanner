@@ -53,7 +53,7 @@ export function AvailabilityEmptyState() {
 }
 
 export function NewAvailabilityWindowForm({ parents, workTypes, envelopeParentIds,
-  initialTimezone, minimumEffectiveDate, onPreview, onCancel }: {
+  initialTimezone, minimumEffectiveDate, onPreview, onCancel, onDraftChanged }: {
   parents: readonly ParentChoice[];
   workTypes: readonly WorkTypeChoice[];
   envelopeParentIds: readonly string[];
@@ -61,6 +61,7 @@ export function NewAvailabilityWindowForm({ parents, workTypes, envelopeParentId
   minimumEffectiveDate: string;
   onPreview: (draft: WindowPreviewRequest) => void | Promise<void>;
   onCancel: () => void;
+  onDraftChanged?: () => void;
 }) {
   const [draft, setDraft] = useState<WindowDraft>({
     parentId: "", workTypeId: "", daysOfWeek: [], startTime: "09:00",
@@ -75,6 +76,7 @@ export function NewAvailabilityWindowForm({ parents, workTypes, envelopeParentId
 
   function change(patch: Partial<WindowDraft>) {
     setDraft((previous) => ({ ...previous, ...patch }));
+    onDraftChanged?.();
     setErrors({}); setFailure(""); setNotice("");
   }
   function toggleDay(day: number, checked: boolean) {
@@ -101,8 +103,8 @@ export function NewAvailabilityWindowForm({ parents, workTypes, envelopeParentId
   return <section className="tp26-form-card" aria-label="Formulaire nouvelle plage">
     <div className="tp26-form-header">
       <div><h3>+ Nouvelle plage</h3>
-        <p>Prépare une permission récurrente. L'aperçu et la confirmation finale
-          seront pris en charge par l'étape d'intégration.</p></div>
+        <p>Choisis les heures et les jours récurrents, puis demande un aperçu au serveur.
+          Aucune réservation existante ne sera déplacée.</p></div>
       <button type="button" className="tp26-secondary" onClick={onCancel} disabled={busy}>
         Fermer
       </button>
@@ -162,8 +164,8 @@ export function NewAvailabilityWindowForm({ parents, workTypes, envelopeParentId
         </label>)}</div>
         {errors.daysOfWeek && <small className="tp26-error">{errors.daysOfWeek}</small>}
       </fieldset>
-      <p className="tp26-hint">Les chevauchements, la capacité réelle, les conflits et les
-        confirmations sont évalués côté serveur après l'intégration.</p>
+      <p className="tp26-hint">Les chevauchements et les conflits seront vérifiés par
+        le moteur serveur avant la confirmation.</p>
       {Object.keys(errors).length > 0 && <p role="alert" className="tp26-error">
         Corrige les champs indiqués avant de demander l'aperçu.</p>}
       {failure && <p role="alert" className="tp26-error">{failure}</p>}

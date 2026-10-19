@@ -7,14 +7,10 @@ type Revision = {
   enabled: boolean; start_fold: number | null; end_fold: number | null;
 };
 type Series = { id: string; version: number; revisions: Revision[] };
-type Legacy = { id: string; version: number; revisions: (Revision & {
-  kind: "GENERAL" | "CATEGORIZED"; mode: "PROTECTED" | "PREFERRED" | null;
-  work_type_id: string | null;
-})[] };
 type Draft = {
-  draft_id: string; series_id: string | null; legacy_rule_id: string | null;
+  draft_id: string; series_id: string | null;
   scope_id: string; work_type_id: string; expected_version: number;
-  expected_legacy_version: number | null; effective_from: string; timezone_name: string;
+  effective_from: string; timezone_name: string;
   days_of_week: number[]; starts_at_local: string; ends_at_local: string;
   priority_rank: number | null; enabled: boolean; start_fold: number | null; end_fold: number | null;
 };
@@ -46,41 +42,40 @@ function nextCivilDay(zone: string): string {
 }
 
 export function EligibilityContextEditor({ scopeId, workTypeId, zone, seriesId,
-  legacyRuleId, selectedDate, onClose, onSaved }: {
+  selectedDate, onClose, onSaved }: {
   scopeId: string; workTypeId: string; zone: string;
-  seriesId: string | null; legacyRuleId: string | null; selectedDate: string;
+  seriesId: string | null; selectedDate: string;
   onClose: () => void; onSaved: () => void;
 }) {
   const minimum = nextCivilDay(zone);
   const [draft, setDraft] = useState<Draft>({
-    draft_id: crypto.randomUUID(), series_id: seriesId, legacy_rule_id: legacyRuleId,
+    draft_id: crypto.randomUUID(), series_id: seriesId,
     scope_id: scopeId, work_type_id: workTypeId, expected_version: 0,
-    expected_legacy_version: null, effective_from: selectedDate > minimum ? selectedDate : minimum,
+    effective_from: selectedDate > minimum ? selectedDate : minimum,
     timezone_name: zone, days_of_week: [new Date(selectedDate + "T12:00:00Z").getUTCDay() === 0 ?
       6 : new Date(selectedDate + "T12:00:00Z").getUTCDay() - 1],
     starts_at_local: "09:00", ends_at_local: "12:00", priority_rank: null,
     enabled: true, start_fold: null, end_fold: null,
   });
   const [busy, setBusy] = useState(false);
-  const [loaded, setLoaded] = useState(!seriesId && !legacyRuleId);
+  const [loaded, setLoaded] = useState(!seriesId);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
 
   useEffect(() => {
-    if (!seriesId && !legacyRuleId) return;
+    if (!seriesId) return;
     let active = true;
-    const path = seriesId ? root + "/series/" + seriesId : "/api/availability/rules/" + legacyRuleId;
-    void request<Series | Legacy>(path).then((result) => {
+    const path = root + "/series/" + seriesId;
+    void request<Series>(path).then((result) => {
       if (!active) return;
       const revision = result.revisions[result.revisions.length - 1];
       setDraft((previous) => ({
-        ...previous, expected_version: seriesId ? result.version : 0,
-        expected_legacy_version: legacyRuleId ? result.version : null,
+        ...previous, expected_version: result.version,
         days_of_week: [...revision.days_of_week],
         starts_at_local: revision.starts_at_local, ends_at_local: revision.ends_at_local,
-        priority_rank: seriesId ? revision.priority_rank : null,
+        priority_rank: revision.priority_rank,
         start_fold: revision.start_fold, end_fold: revision.end_fold,
         enabled: revision.enabled,
       }));
@@ -88,7 +83,7 @@ export function EligibilityContextEditor({ scopeId, workTypeId, zone, seriesId,
       if (active) setError(reason instanceof Error ? reason.message : "Lecture impossible.");
     }).finally(() => { if (active) setLoaded(true); });
     return () => { active = false; };
-  }, [seriesId, legacyRuleId]);
+  }, [seriesId]);
 
   function change(patch: Partial<Draft>) {
     setDraft((previous) => ({ ...previous, ...patch }));
@@ -126,18 +121,13 @@ export function EligibilityContextEditor({ scopeId, workTypeId, zone, seriesId,
       if (message.includes("(409)")) setPreview(null);
     } finally { setBusy(false); }
   }
-  const isLegacy = !!legacyRuleId;
   return <section className="eligEdit" aria-label="Édition contextuelle d'admissibilité">
     <div className="availabilityCardHeading">
-      <div><h4>{isLegacy ? "Transition explicite depuis une règle exclusive" :
-        seriesId ? "Modifier une permission partagée" : "Nouvelle permission partagée"}</h4>
+      <div><h4>{seriesId ? "Modifier une permission partagée" : "Nouvelle permission partagée"}</h4>
         <p className="muted">Parent {scopeId} · activité {workTypeId} · {zone}.
           L'édition est future, versionnée et sans glisser-déposer.</p></div>
       <button type="button" onClick={onClose} disabled={busy}>Fermer l'éditeur</button>
     </div>
-    {isLegacy && <p className="eligWarning">Transition volontaire : la série historique sera
-      désactivée uniquement à partir de la date choisie. Le mode PROTECTED ne peut
-      jamais être converti silencieusement. Les exceptions futures non résolues bloquent l'opération.</p>}
     {!loaded && <p role="status">Chargement de la version de la règle…</p>}
     {loaded && <form className="eligEditForm" onSubmit={(event) => void showPreview(event)}>
       <label>Date d'effet (future)

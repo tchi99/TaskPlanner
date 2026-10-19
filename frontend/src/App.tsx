@@ -23,7 +23,7 @@ type Task = {
   work_type_id: string | null;
 };
 type Project = { id: string; title: string; description: string | null; status: string };
-type WorkType = { id: string; name: string; description: string | null };
+type WorkType = { id: string; name: string; description: string | null; scope_id: string; version: number };
 
 async function jsonRequest<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await apiFetch(url, options);
@@ -118,7 +118,6 @@ export function App() {
   const [dueAt, setDueAt] = useState("");
   const [estimatedMinutes, setEstimatedMinutes] = useState("");
   const [newProject, setNewProject] = useState("");
-  const [newWorkType, setNewWorkType] = useState("");
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -169,7 +168,7 @@ export function App() {
 
   async function createReference(
     event: FormEvent<HTMLFormElement>,
-    resource: "projects" | "work-types",
+    resource: "projects",
     value: string,
   ) {
     event.preventDefault();
@@ -180,10 +179,9 @@ export function App() {
       await jsonRequest(`/api/${resource}`, {
         method: "POST",
         headers: jsonHeaders,
-        body: JSON.stringify(resource === "projects" ? { title: value.trim() } : { name: value.trim() }),
+        body: JSON.stringify({ title: value.trim() }),
       });
-      if (resource === "projects") setNewProject("");
-      else setNewWorkType("");
+      setNewProject("");
       await reload();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Échec de création.");
@@ -385,12 +383,9 @@ export function App() {
                 <label>Nouveau projet<input maxLength={500} value={newProject} onChange={(e) => setNewProject(e.target.value)} /></label>
                 <button disabled={saving || !newProject.trim()}>Créer le projet</button>
               </form>
-              <form onSubmit={(e) => createReference(e, "work-types", newWorkType)}>
-                <label>Nouveau type de travail (compatibilité)<input maxLength={200} value={newWorkType} onChange={(e) => setNewWorkType(e.target.value)} /></label>
-                <button disabled={saving || !newWorkType.trim()}>Ajouter le type</button>
-              </form>
+
             </div>
-            <p className="muted">Les nouveaux types restent en compatibilité tant que leur rattachement daté n’est pas confirmé dans Planification → Disponibilités.</p>
+            <p className="muted">Crée les sous-catégories directement sous leur parent dans Planification → Disponibilités. Le parent reste associé définitivement à l'activité.</p>
             {workTypes.length > 0 && <p className="muted">Types : {workTypes.map((type) => type.name).join(", ")}</p>}
           </section>
                   <section className="inbox projectsOverview">
