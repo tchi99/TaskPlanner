@@ -205,10 +205,21 @@ async function prepareParentAndType(page: Page) {
 
 async function prepareEnvelope(page: Page) {
   const editor = page.getByRole("region", { name: "Éditeur hebdomadaire" });
+  const details = page.locator("details").filter({ has: editor });
   await editor.getByRole("button", { name: "Ajouter une plage au Mardi" }).click();
   await editor.getByRole("button", { name: "Prévisualiser les changements" }).click();
   await expect(editor.getByText(/Capacité déclarée sur 93 jours/)).toBeVisible();
+  const confirmed = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === "/api/availability/weekly-schedule/confirm" &&
+    response.request().method() === "POST");
   await editor.getByRole("button", { name: "Confirmer et enregistrer l'horaire futur" }).click();
+  const receipt = await confirmed;
+  expect(receipt.ok()).toBe(true);
+  expect(await receipt.json()).toMatchObject({ applied: true, calendar_written: false });
+  // When a parent's first envelope is saved, the unified setup intentionally
+  // collapses its editor. Reopen it before inspecting the saved-status message.
+  await expect(details).not.toHaveAttribute("open", "");
+  await details.locator("summary").click();
   await expect(editor.getByText(/Horaire futur enregistré atomiquement/)).toBeVisible();
 }
 
