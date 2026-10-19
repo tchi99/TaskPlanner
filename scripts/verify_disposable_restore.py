@@ -87,8 +87,20 @@ def snapshot(url: URL, database: str) -> tuple:
                 "WHERE schemaname = %s ORDER BY tablename", (SCHEMA,)
             )
             names = [row[0] for row in cursor.fetchall()]
-            if not {"alembic_version", "projects", "tasks", "history_events"} <= set(names):
+            required = {"alembic_version", "projects", "tasks", "history_events",
+                        "schedule_scopes", "work_types", "eligibility_series"}
+            forbidden = {"work_type_scope_assignments", "work_type_scope_versions"}
+            if not required <= set(names):
                 raise DrillError("Missing migrated application tables")
+            if forbidden & set(names):
+                raise DrillError("Legacy affiliation tables found in fresh schema")
+            cursor.execute(
+                "SELECT is_nullable FROM information_schema.columns "
+                "WHERE table_schema = %s AND table_name = 'work_types' "
+                "AND column_name = 'scope_id'", (SCHEMA,)
+            )
+            if cursor.fetchone() != ("NO",):
+                raise DrillError("Work type parent must be mandatory in fresh schema")
             result = []
             for name in names:
                 query = sql.SQL("SELECT to_jsonb(t)::text FROM {} AS t").format(

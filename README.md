@@ -87,3 +87,14 @@ Le volume PostgreSQL survit à `docker compose down` ; **ne pas lancer
 Ce mode désactive l'authentification exclusivement pour des tests locaux;
 ne pas l'exposer sur le réseau ni l'utiliser en production.
 
+
+## Configuration neuve des disponibilités (TP-026)
+
+Une base **vierge** est requise par la nouvelle baseline Alembic. Après
+le démarrage, créer une catégorie parente puis une sous-catégorie, définir
+une enveloppe physique hebdomadaire pour le parent et utiliser
+**+ Nouvelle plage** pour créer des permissions superposables. Aucune
+catégorie de compatibilité ni donnée de démonstration n'est insérée.
+Les routes de création de blocs manuels et de règles exclusives sont
+retirées. Les réservations confirmées et les protections des tâches
+restent soumises à décision explicite. Voir [la recette locale](docs/LOCAL_DOCKER.md).

@@ -92,3 +92,28 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install "PyYAML>=6,<7"
       - run: python tests/check_render_blueprint.py
+
+  # TP-026C: unique, ephemeral CI-only Compose project; never target user volumes.
+  docker-bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Isolated CI Compose credentials
+        run: |
+          printf 'TASKPLANNER_DOCKER_DB_PASSWORD=%s\n' "$(openssl rand -hex 16)" > .env
+          docker compose -p taskplanner-tp026c-${{ github.run_id }} config --quiet
+      - name: Fresh PostgreSQL, Alembic, API and Vite
+        run: docker compose -p taskplanner-tp026c-${{ github.run_id }} up --build -d
+      - name: Verify fresh bootstrap end to end
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --output /dev/null http://127.0.0.1:5173/api/health; then break; fi
+            sleep 3
+          done
+          curl --fail --silent --output /dev/null http://127.0.0.1:5173/api/health
+          python -m scripts.verify_tp026c_bootstrap
+      - name: Clean only ephemeral CI Compose project
+        if: always()
+        run: |
+          docker compose -p taskplanner-tp026c-${{ github.run_id }} down -v --remove-orphans
+          rm -f .env

@@ -74,9 +74,9 @@ def setup(client):
 
 def draft(work_type_id, **changes):
     value = dict(
-        draft_id=str(uuid4()), series_id=None, legacy_rule_id=None,
+        draft_id=str(uuid4()), series_id=None,
         scope_id=SCOPE_BY_TYPE[work_type_id], work_type_id=work_type_id,
-        expected_version=0, expected_legacy_version=None,
+        expected_version=0,
         effective_from=DAY.isoformat(), timezone_name=ZONE, days_of_week=[1],
         starts_at_local="10:00", ends_at_local="12:00",
         priority_rank=None, enabled=True, start_fold=None, end_fold=None,
@@ -148,7 +148,7 @@ def test_legacy_conversion_is_rejected_but_direct_shared_permissions_work(runtim
         "ends_at_local": "12:00", "kind": "CATEGORIZED",
         "work_type_id": focus, "mode": "PREFERRED",
     })
-    assert legacy.status_code == 422
+    assert legacy.status_code == 405
     obsolete = client.post(BASE + "/preview", json=draft(
         focus, legacy_rule_id=str(uuid4()), expected_legacy_version=1))
     assert obsolete.status_code == 422

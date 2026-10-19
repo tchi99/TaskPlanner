@@ -64,6 +64,41 @@ La `.env` locale est ignorée par Git et exclue des images Docker.
 docker compose logs --tail 80 db migrate backend frontend
 ```
 
+## TP-026C — démarrage réellement vierge
+
+Une nouvelle installation applique uniquement la révision Alembic
+`0020_tp026_fresh` sur une base **sans tables métier**. Elle n'insère
+aucun parent, aucune sous-catégorie et aucune permission précréés.
+L'assistant de configuration affiche les étapes parent → sous-catégorie →
+enveloppe physique → `+ Nouvelle plage`, avec aperçu et confirmation.
+
+**Aucun reset automatique** n'est exécuté par Compose ou Alembic. Si un
+ancien volume local contient la chaîne historique, la migration refuse
+de la modifier; l'échec est intentionnel. Avant un éventuel
+`docker compose -p taskplanner-local down -v`, vérifier dans Docker
+Desktop le projet exact `taskplanner-local`, le conteneur `db` et
+le volume de ce projet, puis confirmer que cette **seule base locale**
+est jetable. Ne jamais appliquer la commande à un contexte distant,
+partagé ou à une base Supabase/Render.
+
+La CI inclut une recette isolée `docker-bootstrap` dans un nouveau
+projet Compose éphémère : PostgreSQL vierge → Alembic → FastAPI/Vite →
+création parent/sous-catégories → enveloppe → deux permissions qui se
+chevauchent → contrôle de non-additivité et absence d'API d'écriture
+legacy. Le projet de CI est supprimé à la fin de sa propre exécution;
+cela ne touche **aucun** volume local de développement. Hors CI,
+exécuter `python -m scripts.verify_tp026c_bootstrap` **seulement**
+sur une instance locale jetable **encore vierge**, accessible sur
+`127.0.0.1:5173`, car le script crée des données d'essai.
+
+Les anciennes déclarations physiques restent consultables pour
+l'affichage et la sélection d'occurrences, mais leurs routes d'écriture
+sont fermées. Les nouvelles éditions récurrentes passent par
+`/api/availability/weekly-schedule/preview` et `/confirm`;
+les permissions par `/api/availability/eligibility-edits`.
+Les dérogations physiques datées et décisions sur réservations
+conservent leurs prévisualisations et confirmations propres.
+
 ## Sauvegarder ses données locales
 
 Le volume `taskplanner_pg_data` demeure après un simple arrêt. Pour obtenir

@@ -103,8 +103,8 @@ def configure(client, *, permissions=True):
 def permission(client, scope, typ, *, rank, series_id=None, expected_version=0):
     body = {
         "draft_id": str(uuid4()), "series_id": series_id,
-        "legacy_rule_id": None, "scope_id": scope, "work_type_id": typ,
-        "expected_version": expected_version, "expected_legacy_version": None,
+        "scope_id": scope, "work_type_id": typ,
+        "expected_version": expected_version,
         "effective_from": DAY.isoformat(), "timezone_name": ZONE,
         "days_of_week": [1], "starts_at_local": "10:00",
         "ends_at_local": "12:00", "priority_rank": rank,
@@ -161,7 +161,7 @@ def test_legacy_manual_writes_are_rejected_without_side_effects(runtime):
     response = client.post(f"/api/capacity/weeks/{WEEK}/blocks", json={
         "starts_at": local(10), "ends_at": local(11),
     })
-    assert response.status_code == 422
+    assert response.status_code == 404
     with factory() as session:
         assert session.scalar(select(func.count()).select_from(
             AvailabilityBlockRecord)) == 0
@@ -177,7 +177,7 @@ def test_exclusive_recurring_writes_are_rejected_without_revisions(runtime):
         "kind": "CATEGORIZED", "work_type_id": types[0], "mode": "PREFERRED",
     }):
         result = client.post("/api/availability/rules", json={**body, **extra})
-        assert result.status_code == 422, result.text
+        assert result.status_code == 405, result.text
     with factory() as session:
         assert session.scalar(select(func.count()).select_from(
             RecurringAvailabilityRevisionRecord)) == 1  # legitimate parent envelope
