@@ -81,7 +81,7 @@ async function setup(page: Page, { stale = false, existingBooking = false } = {}
       fingerprint: "f".repeat(64), has_changes: true, projection_days: 93,
       before_declared_minutes_93d: envelope ? 180 : 0, after_declared_minutes_93d: 9000,
       changed_sections: body.sections.map((section: { weekday: number; kind: string; work_type_id: string | null; scope_id?: string | null }) => sectionKey(section, body.timezone_name)),
-      cell_changes: body.sections.map((section: { weekday: number; slots: unknown[] }) => ({
+      cell_changes: body.sections.map((section: { weekday: number; kind: string; work_type_id: string | null; scope_id?: string | null; slots: unknown[] }) => ({
         section: sectionKey(section, body.timezone_name), before: [], after: section.slots, previous_future: [],
       })),
       series_cutovers: [], exception_remaps: [], unresolved_exceptions: [],
