@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "./auth";
-import { scopeForAt, type ScopeCatalog } from "./ScheduleCategories";
+import type { ScopeCatalog } from "./ScheduleCategories";
 import "./weekly-schedule.css";
 
 type WorkType = { id: string; name: string };
@@ -119,7 +119,6 @@ export function WeeklyScheduleEditor({ workTypes, catalog, scopeId, zone, onSave
   const [grid, setGrid] = useState<GridResponse | null>(null);
   const [cells, setCells] = useState<Record<string, Slot[]>>({});
   const [dirty, setDirty] = useState<string[]>([]);
-  const [selectedType, setSelectedType] = useState("GENERAL");
   const [copySource, setCopySource] = useState(0);
   const [copyTargets, setCopyTargets] = useState<number[]>([]);
   const [preparedCopy, setPreparedCopy] = useState<number[] | null>(null);
@@ -134,19 +133,13 @@ export function WeeklyScheduleEditor({ workTypes, catalog, scopeId, zone, onSave
   useEffect(() => { onDirtyChange(dirty.length > 0); }, [dirty.length, onDirtyChange]);
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
 
-  const visibleTypes = catalog ? workTypes.filter((type) =>
-    scopeForAt(type.id, effectiveFrom, catalog) === (scopeId || catalog.compatibility_scope_id)) : workTypes;
   const scopeName = scopeId ?
     catalog?.scopes.find((value) => value.id === scopeId)?.name || "Catégorie parente" :
-    "Compatibilité (héritage)";
-  const kind: Kind = selectedType === "GENERAL" ? "GENERAL" : "CATEGORIZED";
-  const typeId = kind === "GENERAL" ? null : selectedType;
+    "Choisis un parent";
+  const kind: Kind = "GENERAL";
+  const typeId = null;
   const minimum = addCivilDays(civilDayInZone(zone), 1);
   const keyFor = (day: number) => cellKey(kind, typeId, day, scopeId);
-  useEffect(() => {
-    if (selectedType !== "GENERAL" && !visibleTypes.some((value) => value.id === selectedType))
-      setSelectedType("GENERAL");
-  }, [selectedType, effectiveFrom, scopeId, catalog, workTypes]);
   const slotsOf = (day: number) => cells[keyFor(day)] || [];
 
   function acceptSnapshot(snapshot: GridResponse, keepDraft: boolean) {
@@ -178,7 +171,7 @@ export function WeeklyScheduleEditor({ workTypes, catalog, scopeId, zone, onSave
   function changeDate(value: string) {
     if (!value || value === effectiveFrom) return;
     if (dirty.length && !window.confirm("Abandonner le brouillon et lire la grille à cette autre date ?")) return;
-    setEffectiveFrom(value); setSelectedType("GENERAL"); setNotice("");
+    setEffectiveFrom(value); setNotice("");
   }
   function modify(day: number, slots: Slot[]) {
     const key = keyFor(day);
@@ -281,7 +274,7 @@ export function WeeklyScheduleEditor({ workTypes, catalog, scopeId, zone, onSave
 
   return <section className="availabilityCard weeklyEditor" aria-label="Éditeur hebdomadaire">
     <div className="availabilityCardHeading">
-      <div><h3>Grille de l'horaire habituel</h3>
+      <div><h3>Enveloppe physique hebdomadaire</h3>
         <p className="muted">Catégorie parente : {scopeName}. Modifie uniquement ses sections futures. Les exceptions et les réservations restent distinctes.</p></div>
       <button type="button" disabled={busy || loading} onClick={() => {
         if (!dirty.length || window.confirm("Abandonner le brouillon et recharger l'horaire ?"))
@@ -290,26 +283,17 @@ export function WeeklyScheduleEditor({ workTypes, catalog, scopeId, zone, onSave
     </div>
     <div className="weeklyControls">
       <label>Date d'effet de la grille
-        <input type="date" min={minimum} value={effectiveFrom}
+        <input id="tp26-envelope-date" type="date" min={minimum} value={effectiveFrom}
           onChange={(event) => changeDate(event.target.value)} />
       </label>
       <p>Fuseau IANA : <strong>{zone}</strong>. Au plus tôt demain ({minimum}).</p>
-      <label>Section de l'horaire
-        <select value={selectedType} onChange={(event) => {
-          setSelectedType(event.target.value); setPreparedCopy(null);
-        }}>
-          <option value="GENERAL">Enveloppe générale (NULL de {scopeName})</option>
-          {visibleTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
-        </select>
-      </label>
+      <p>Capacité physique : une enveloppe générale par parent, indépendante des permissions.</p>
     </div>
     {loading && <p role="status">Lecture de l'horaire futur…</p>}
     {!loading && error && <p role="status" className="error">{error}</p>}
     {notice && <p role="status" className="availabilityNotice">{notice}</p>}
     {!loading && grid && <>
-      <p className="muted">{kind === "GENERAL" ?
-        "L'enveloppe définit le temps admissible de ce parent uniquement; les trous restent indisponibles." :
-        "Chaque plage a son propre mode. Retirer une catégorie restitue NULL uniquement dans son parent."}
+      <p className="muted">{"L'enveloppe définit la capacité physique du parent; les permissions des activités se configurent séparément."}
       </p>
       <div className="weeklyDays" aria-label="Grille habituelle du lundi au dimanche">
         {days.map((dayName, day) => {
@@ -335,14 +319,6 @@ export function WeeklyScheduleEditor({ workTypes, catalog, scopeId, zone, onSave
                     onChange={(event) => changeSlot(day, slot.id, { ends_at_local: event.target.value })} />
                 </label>
               </div>
-              {kind === "CATEGORIZED" && <label>Mode
-                <select aria-label={dayName + " plage " + (index + 1) + " mode"}
-                  value={slot.mode || "PREFERRED"} disabled={busy}
-                  onChange={(event) => changeSlot(day, slot.id, { mode: event.target.value as Mode })}>
-                  <option value="PREFERRED">Préférentielle</option>
-                  <option value="PROTECTED">Protégée</option>
-                </select>
-              </label>}
               <div className="weeklyIntervalBottom">
                 <small className={"availabilityMode " + (slot.mode || "GENERAL")}>
                   {slot.mode === "PROTECTED" ? "Protégée" : slot.mode === "PREFERRED" ?
@@ -489,7 +465,7 @@ export function WeeklyScheduleEditor({ workTypes, catalog, scopeId, zone, onSave
                 " (fin " + issue.ends_at.slice(0, 10) + ")"}
               {issue.scope_ids && issue.scope_ids.length > 0 && <p>Parents concernés :
                  {" "}{issue.scope_ids.map((id) => catalog?.scopes.find((scope) => scope.id === id)?.name ||
-                   (catalog?.compatibility_scope_id === id ? "Compatibilité" : id.slice(0, 8))).join(" / ")}</p>}
+                   (id.slice(0, 8))).join(" / ")}</p>}
                <p>{issue.work_type_ids.map((id) =>
                 workTypes.find((type) => type.id === id)?.name || "Type " + id.slice(0, 8)).join(" / ")
                 || "Section générale"} · {diagnosticCause(issue)}</p>
@@ -504,14 +480,11 @@ export function WeeklyScheduleEditor({ workTypes, catalog, scopeId, zone, onSave
               <p>{issue.code === "OUTSIDE_GENERAL_ENVELOPE" ?
                 "Élargis l'enveloppe, ajuste la catégorie ou corrige les deux dans le même brouillon." :
                 "Ajuste les plages conflictuelles dans le même brouillon."}</p>
-              {issue.work_type_id && visibleTypes.some((type) => type.id === issue.work_type_id) &&
-                <button type="button" onClick={() => setSelectedType(issue.work_type_id!)}>
-                  Afficher la section {workTypes.find((type) => type.id === issue.work_type_id)?.name}
-                </button>}
+              {issue.work_type_id && <p>Permission concernée :
+                {workTypes.find((type) => type.id === issue.work_type_id)?.name || issue.work_type_id}.
+                Modifie la permission depuis la grille des admissibilités.</p>}
               {issue.code === "OUTSIDE_GENERAL_ENVELOPE" &&
-                <button type="button" onClick={() => setSelectedType("GENERAL")}>
-                  Afficher l'enveloppe générale
-                </button>}
+                <p>Élargis ici l'enveloppe physique du parent, puis refais l'aperçu.</p>}
             </li>)}</ul>
         </section>}
         {!(preview.result.invalid_diagnostics || []).length &&

@@ -4,8 +4,10 @@ import "./availability.css";
 import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
 import { WeeklyEligibilityChart } from "./WeeklyEligibilityChart";
 import { ScheduleCategories, type ScopeCatalog } from "./ScheduleCategories";
+import { AvailabilitySetupGuide, AvailabilityEmptyState, NewAvailabilityWindowForm } from "./availability-setup/FirstAvailabilitySetup";
+import type { WindowPreviewRequest } from "./availability-setup/model";
 
-type WorkType = { id: string; name: string };
+type WorkType = { id: string; name: string; scope_id: string };
 type TaskChoice = { id: string; title: string; status: string; work_type_id: string | null };
 type Mode = "PROTECTED" | "PREFERRED";
 type Kind = "GENERAL" | "CATEGORIZED";
@@ -118,7 +120,7 @@ function shortId(id: string): string { return id.slice(0, 8); }
 export function AvailabilityPlanner({ workTypes, tasks, onWorkTypesChanged }: {
   workTypes: WorkType[]; tasks: TaskChoice[]; onWorkTypesChanged: () => Promise<void>;
 }) {
-  const [tab, setTab] = useState<"rules" | "real" | "grid">("rules");
+  const [tab, setTab] = useState<"rules" | "real">("rules");
   const [weeklyGridDirty, setWeeklyGridDirty] = useState(false);
   const [catalog, setCatalog] = useState<ScopeCatalog | null>(null);
   const [catalogError, setCatalogError] = useState("");
@@ -153,18 +155,96 @@ export function AvailabilityPlanner({ workTypes, tasks, onWorkTypesChanged }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [newWindowOpen, setNewWindowOpen] = useState(false);
+  const [newWindowBusy, setNewWindowBusy] = useState(false);
+  const [newWindowError, setNewWindowError] = useState("");
+  const [windowAcknowledged, setWindowAcknowledged] = useState(false);
+  const [windowPreview, setWindowPreview] = useState<{
+    draft: Record<string, unknown> & { draft_id: string };
+    snapshot: {
+      fingerprint: string; blocking_issues: string[]; consequences: string[];
+      before_physical_minutes: number; after_physical_minutes: number;
+      booking_inventory: { id: string }[]; calendar_checked: boolean;
+    };
+  } | null>(null);
+  const [hasPermission, setHasPermission] = useState(false);
+  const [chartRevision, setChartRevision] = useState(0);
+  const envelopeParentIds = Array.from(new Set(rules.flatMap((rule) =>
+    rule.revisions.filter((revision) => revision.kind === "GENERAL" &&
+      revision.enabled && revision.scope_id).map((revision) => revision.scope_id!))));
+  const eligibleParents = catalog?.scopes.filter((scope) => scope.state === "ACTIVE") || [];
+  const minimumEffectiveDate = shiftDay(dayInZone(new Date().toISOString(), zone), 1);
+  const progress = {
+    hasParent: eligibleParents.length > 0,
+    hasWorkType: workTypes.some((type) => eligibleParents.some((scope) => scope.id === type.scope_id)),
+    hasEnvelope: envelopeParentIds.length > 0,
+    hasPermission,
+  };
+  function focusSetup(id: string) {
+    document.getElementById(id)?.focus();
+  }
+  async function previewNewWindow(request: WindowPreviewRequest) {
+    setNewWindowError(""); setWindowPreview(null); setWindowAcknowledged(false);
+    const draft = {
+      draft_id: crypto.randomUUID(), series_id: null, scope_id: request.parentId,
+      work_type_id: request.workTypeId, expected_version: 0,
+      effective_from: request.effectiveDate, timezone_name: request.timezone,
+      days_of_week: request.daysOfWeek, starts_at_local: request.startTime,
+      ends_at_local: request.endTime, priority_rank: request.priority,
+      enabled: true, start_fold: null, end_fold: null,
+    };
+    try {
+      const snapshot = await api<{
+        fingerprint: string; blocking_issues: string[]; consequences: string[];
+        before_physical_minutes: number; after_physical_minutes: number;
+        booking_inventory: { id: string }[]; calendar_checked: boolean;
+      }>("/api/availability/eligibility-edits/preview", {
+        method: "POST", headers, body: JSON.stringify(draft),
+      });
+      setWindowPreview({ draft, snapshot });
+    } catch (reason: unknown) {
+      setNewWindowError(reason instanceof Error ? reason.message : "Aperçu impossible.");
+      throw reason;
+    }
+  }
+  async function confirmNewWindow() {
+    if (!windowPreview || windowPreview.snapshot.blocking_issues.length ||
+      (windowPreview.snapshot.booking_inventory.length && !windowAcknowledged)) return;
+    if (!window.confirm("Confirmer cette permission future ? Les réservations restent inchangées.")) return;
+    setNewWindowBusy(true); setNewWindowError("");
+    try {
+      await api("/api/availability/eligibility-edits/confirm", {
+        method: "POST", headers, body: JSON.stringify({
+          ...windowPreview.draft, command_id: windowPreview.draft.draft_id,
+          fingerprint: windowPreview.snapshot.fingerprint,
+          confirmed: true, acknowledge_bookings: windowAcknowledged,
+        }),
+      });
+      setNewWindowOpen(false); setWindowPreview(null); setHasPermission(true);
+      setChartRevision((value) => value + 1);
+      await reload();
+      setNotice("Permission enregistrée. Aucune réservation ni événement Google déplacé.");
+    } catch (reason: unknown) {
+      const message = reason instanceof Error ? reason.message : "Confirmation impossible.";
+      setNewWindowError(message + " Le brouillon est conservé.");
+      if (message.includes("(409)")) setWindowPreview(null);
+    } finally { setNewWindowBusy(false); }
+  }
 
   const label = (id: string | null) =>
     id ? workTypes.find((type) => type.id === id)?.name || "Type " + shortId(id) : "Non classé (NULL)";
   const scopeLabel = (id: string | null | undefined) =>
-    !id || id === catalog?.compatibility_scope_id ? "Compatibilité (héritage)" :
-      catalog?.scopes.find((scope) => scope.id === id)?.name || "Scope " + shortId(id);
+    !id ? "Global" :
+      catalog?.scopes.find((scope) => scope.id === id)?.name || "Parent " + shortId(id);
   const sectionLabel = (typeId: string | null, scopeId: string | null | undefined) =>
     typeId ? label(typeId) + " · " + scopeLabel(scopeId) :
       "Général (NULL) · " + scopeLabel(scopeId);
   const refreshCatalog = useCallback(async () => {
     const result = await api<ScopeCatalog>("/api/schedule-scopes");
     setCatalog(result); setCatalogError("");
+    setSelectedScopeId((old) => result.scopes.some((scope) =>
+      scope.id === old && scope.state === "ACTIVE") ? old :
+      result.scopes.find((scope) => scope.state === "ACTIVE")?.id || "");
   }, []);
   useEffect(() => {
     void refreshCatalog().catch((reason: unknown) => setCatalogError(
@@ -175,7 +255,21 @@ export function AvailabilityPlanner({ workTypes, tasks, onWorkTypesChanged }: {
     if (weeklyGridDirty && !window.confirm(
       "Changer de parent abandonnera le brouillon hebdomadaire non enregistré. Continuer ?")) return;
     setSelectedScopeId(id); setWeeklyGridDirty(false);
+    setWindowPreview(null); setHasPermission(false);
   }
+  useEffect(() => {
+    if (!selectedScopeId) { setHasPermission(false); return; }
+    let active = true;
+    const query = new URLSearchParams({
+      week_start: week, timezone_name: zone, scope_id: selectedScopeId,
+    });
+    void api<{ potential_minutes: { work_type_id: string; minutes: number }[] }>(
+      "/api/availability/eligibility-week?" + query,
+    ).then((result) => {
+      if (active) setHasPermission(result.potential_minutes.some((item) => item.minutes > 0));
+    }).catch(() => { if (active) setHasPermission(false); });
+    return () => { active = false; };
+  }, [selectedScopeId, week, zone, chartRevision]);
   const describe = (start: string, end: string) =>
     dayInZone(start, zone) + " " + timeInZone(start, zone) + " – " +
     dayInZone(end, zone) + " " + timeInZone(end, zone);
@@ -262,11 +356,9 @@ export function AvailabilityPlanner({ workTypes, tasks, onWorkTypesChanged }: {
       starts_at: action === "CANCEL" ? null : stamp(exceptionDraft.starts_at),
       ends_at: action === "CANCEL" ? null : stamp(exceptionDraft.ends_at),
       timezone_name: exceptionDraft.timezone_name,
-      kind: action === "UNAVAILABLE" || action === "CANCEL" ? null : exceptionDraft.kind,
-      work_type_id: action === "ADD" || action === "REPLACE" ?
-        exceptionDraft.kind === "CATEGORIZED" ? exceptionDraft.work_type_id || null : null : null,
-      mode: action === "ADD" || action === "REPLACE" ?
-        exceptionDraft.kind === "CATEGORIZED" ? exceptionDraft.mode : null : null,
+      kind: action === "UNAVAILABLE" || action === "CANCEL" ? null : "GENERAL",
+      work_type_id: null,
+      mode: null,
       enabled: exceptionDraft.enabled, reason: exceptionDraft.reason.trim() || null,
       scope_id: action === "CANCEL" || action === "REPLACE" ? null : exceptionDraft.scope_id || null,
     };
@@ -390,20 +482,15 @@ export function AvailabilityPlanner({ workTypes, tasks, onWorkTypesChanged }: {
   return (
     <section className="availabilityPanel" aria-label="Disponibilités">
       <div className="availabilityHead">
-        <div><h2>Disponibilités</h2><p>Définis une fois ton horaire, puis ajuste les exceptions de la semaine.</p></div>
-        <div className="availabilitySwitch" role="group" aria-label="Vue des disponibilités">
+        <div><h2>Disponibilités</h2><p>Configure les parents, les enveloppes et les permissions depuis un seul espace.</p></div>
+        <div className="availabilitySwitch" role="group" aria-label="Configuration et exceptions">
           <button type="button" aria-pressed={tab === "rules"} className={tab === "rules" ? "selected" : ""}
-            onClick={() => setTab("rules")}>Horaire habituel</button>
+            onClick={() => setTab("rules")}>Configuration</button>
           <button type="button" aria-pressed={tab === "real"} className={tab === "real" ? "selected" : ""}
             onClick={() => {
-              if (weeklyGridDirty && !window.confirm("Abandonner les changements non enregistrés de l'horaire habituel ?")) return;
+              if (weeklyGridDirty && !window.confirm("Abandonner les changements non enregistrés de l'enveloppe ?")) return;
               setTab("real");
-            }}>Semaine réelle</button>
-          <button type="button" aria-pressed={tab === "grid"} className={tab === "grid" ? "selected" : ""}
-            onClick={() => {
-              if (weeklyGridDirty && !window.confirm("Abandonner les changements non enregistrés de l'horaire habituel ?")) return;
-              setTab("grid");
-            }}>Grille visuelle</button>
+            }}>Exceptions physiques et réservations</button>
         </div>
       </div>
       <div className="availabilityToolbar">
@@ -429,57 +516,86 @@ export function AvailabilityPlanner({ workTypes, tasks, onWorkTypesChanged }: {
       </div>
       {error && <p role="alert" className="error">{error}</p>}
       {notice && <p role="status" className="availabilityNotice">{notice}</p>}
-      {loading ? <p role="status">Chargement des disponibilités…</p> : tab === "grid" ? (
-        <WeeklyEligibilityChart week={week} zone={zone} scopeId={selectedScopeId || null}
-          catalog={catalog} workTypes={workTypes} tasks={tasks} onSelectScope={selectScope} />
-      ) : tab === "rules" ? (
+      {loading ? <p role="status">Chargement des disponibilités…</p> : tab === "rules" ? (
         <div className="availabilityStack">
-          {catalogError && <p role="alert" className="error">Catégories parentes indisponibles :
-             {" "}{catalogError}. La grille de compatibilité reste consultable.</p>}
-           {catalog && <ScheduleCategories catalog={catalog} workTypes={workTypes}
-             ruleSources={rules} zone={zone} onWorkTypesChanged={onWorkTypesChanged}
-             onChanged={async () => { await refreshCatalog(); await reload(); }}
-             onSelectScope={selectScope} />}
-           <section className="availabilityCard scopeChooser">
-             <label>Catégorie parente à configurer
-               <select aria-label="Catégorie parente de l'horaire" value={selectedScopeId}
-                 onChange={(event) => selectScope(event.target.value)}>
-                 <option value="">Compatibilité (héritage)</option>
-                 {catalog?.scopes.filter((scope) => !scope.is_compatibility).map((scope) =>
-                   <option key={scope.id} value={scope.id} disabled={scope.state !== "ACTIVE"}>
-                     {scope.name}{scope.state === "INACTIVE" ? " (désactivée)" : ""}
-                   </option>)}
-               </select>
-             </label>
-             <p className="muted">Les plages GENERAL (NULL) restent propres à ce parent.
-               Aucune minute n'est transférée automatiquement entre Travail et Personnel.</p>
-           </section>
-           <WeeklyScheduleEditor key={selectedScopeId || "compatibility"} workTypes={workTypes}
-             catalog={catalog} scopeId={selectedScopeId || null} zone={zone}
-             onSaved={reload} onDirtyChange={setWeeklyGridDirty} />
-          <details className="availabilityLegacy">
-            <summary>Consulter les séries historiques (lecture seule)</summary>
-            <section className="availabilityCard">
-              <h3>Sources de l'horaire conservées</h3>
-              <p className="muted">L'ancien formulaire de révision et création règle par règle a été retiré.
-                Les règles existantes, leurs révisions, fuseaux, dates de fin et exceptions sont conservés.
-                Pour corriger une plage récurrente, utilise la grille et choisis le fuseau de la source dans
-                « Fuseau de lecture ». Aucune donnée historique n'est supprimée.</p>
-              {rules.length === 0 ? <p className="empty">Aucune règle historique.</p> :
-                <ul className="availabilityRows">{rules.map((rule) => {
-                  const latest = rule.revisions[rule.revisions.length - 1];
-                  return <li key={rule.id}>
-                    <div><strong>{latest.kind === "GENERAL" ? "Enveloppe générale" : label(latest.work_type_id)}</strong>
-                      <p>{latest.days_of_week.map((day) => weekdays[day]).join(", ")} ·
-                        {" "}{latest.starts_at_local}–{latest.ends_at_local} · {latest.timezone_name} · {scopeLabel(latest.scope_id)}</p>
-                      <small>Règle {shortId(rule.id)} · {latest.enabled ? "Active" : "Désactivée"}
-                        {" "}dès {latest.effective_from} · fin exclusive {latest.valid_until || "sans limite"}
-                        {" "}· version {rule.version} · {rule.revisions.length} révision(s)</small>
-                    </div>
-                  </li>;
-                })}</ul>}
-            </section>
-            </details>
+          {catalogError && <p role="alert" className="error">{catalogError}</p>}
+          {(!progress.hasParent || !progress.hasWorkType || !progress.hasEnvelope || !progress.hasPermission) &&
+            <AvailabilitySetupGuide progress={progress}
+              onCreateParent={() => focusSetup("tp26-new-parent")}
+              onAddWorkType={() => focusSetup("tp26-new-work-type")}
+              onDefineEnvelope={() => focusSetup("tp26-envelope-date")}
+              onNewWindow={() => { setNewWindowOpen(true); setWindowPreview(null); }} />}
+          {catalog && <ScheduleCategories catalog={catalog} workTypes={workTypes}
+            onWorkTypesChanged={onWorkTypesChanged}
+            onChanged={async () => { await refreshCatalog(); await reload(); }}
+            onSelectScope={selectScope} />}
+          <section className="availabilityCard scopeChooser">
+            <label>Catégorie parente à configurer
+              <select aria-label="Catégorie parente de l'horaire" value={selectedScopeId}
+                onChange={(event) => selectScope(event.target.value)}>
+                <option value="">Choisir un parent</option>
+                {eligibleParents.map((scope) =>
+                  <option key={scope.id} value={scope.id}>{scope.name}</option>)}
+              </select>
+            </label>
+            <p className="muted">Une enveloppe physique par parent, sans double comptage.
+              Les sous-catégories partagent ses minutes admissibles.</p>
+          </section>
+          {selectedScopeId && <details open={!envelopeParentIds.includes(selectedScopeId)}>
+            <summary>Définir ou modifier l'enveloppe physique hebdomadaire</summary>
+            <WeeklyScheduleEditor key={selectedScopeId} workTypes={workTypes}
+              catalog={catalog} scopeId={selectedScopeId} zone={zone}
+              onSaved={async () => { await reload(); setChartRevision((value) => value + 1); }}
+              onDirtyChange={setWeeklyGridDirty} />
+          </details>}
+          <section className="availabilityCard" aria-label="Créer une permission">
+            <div className="availabilityCardHeading">
+              <div><h3>Permissions récurrentes</h3>
+                <p className="muted">Plusieurs activités du même parent peuvent se superposer.
+                  L'aperçu serveur valide les contraintes avant l'enregistrement.</p></div>
+              <button type="button" onClick={() => { setNewWindowOpen(true); setWindowPreview(null); }}>
+                + Nouvelle plage
+              </button>
+            </div>
+            {!hasPermission && <AvailabilityEmptyState />}
+            {newWindowOpen && <NewAvailabilityWindowForm parents={eligibleParents.map((scope) =>
+              ({ id: scope.id, label: scope.name }))}
+              workTypes={workTypes.map((type) => ({
+                id: type.id, parentId: type.scope_id, label: type.name,
+              }))}
+              envelopeParentIds={envelopeParentIds} initialTimezone={zone}
+              minimumEffectiveDate={minimumEffectiveDate}
+              onPreview={previewNewWindow} onDraftChanged={() => setWindowPreview(null)}
+              onCancel={() => { setNewWindowOpen(false); setWindowPreview(null); }} />}
+            {newWindowError && <p role="alert" className="error">{newWindowError}</p>}
+            {windowPreview && <div className="availabilityPreview" aria-live="polite">
+              <h4>Aperçu serveur de la nouvelle permission</h4>
+              <p>Capacité physique avant : {windowPreview.snapshot.before_physical_minutes} min ;
+                après : {windowPreview.snapshot.after_physical_minutes} min. Les permissions
+                simultanées ne s'additionnent pas.</p>
+              <ul>{windowPreview.snapshot.consequences.map((value, index) =>
+                <li key={index}>{value}</li>)}</ul>
+              {!windowPreview.snapshot.calendar_checked &&
+                <p>Google non vérifié : aucun temps libre n'est présumé.</p>}
+              {windowPreview.snapshot.blocking_issues.length > 0 &&
+                <p role="alert" className="error">Blocages :
+                  {windowPreview.snapshot.blocking_issues.join(", ")}</p>}
+              {windowPreview.snapshot.booking_inventory.length > 0 &&
+                <label><input type="checkbox" checked={windowAcknowledged}
+                  onChange={(event) => setWindowAcknowledged(event.target.checked)} />
+                  Je reconnais que {windowPreview.snapshot.booking_inventory.length} réservation(s)
+                  confirmée(s) restent inchangées.</label>}
+              <button type="button" disabled={newWindowBusy ||
+                windowPreview.snapshot.blocking_issues.length > 0 ||
+                (windowPreview.snapshot.booking_inventory.length > 0 && !windowAcknowledged)}
+                onClick={() => void confirmNewWindow()}>
+                {newWindowBusy ? "Enregistrement…" : "Confirmer la nouvelle plage"}</button>
+            </div>}
+          </section>
+          {selectedScopeId && <WeeklyEligibilityChart key={selectedScopeId + ":" + chartRevision}
+            week={week} zone={zone} scopeId={selectedScopeId}
+            catalog={catalog} workTypes={workTypes} tasks={tasks}
+            onSelectScope={selectScope} />}
         </div>
       ) : (
         <div className="availabilityStack">
@@ -505,11 +621,10 @@ export function AvailabilityPlanner({ workTypes, tasks, onWorkTypesChanged }: {
                 return <div className="availabilityDay" key={date}>
                   <h4>{day} <small>{date.slice(5)}</small></h4>
                   {blocks.length === 0 ? <p className="empty">Aucune plage</p> :
-                    blocks.map((block) => <div className={"availabilitySlot " + (block.mode || "GENERAL")} key={block.id}>
+                    blocks.map((block) => <div className="availabilitySlot GENERAL" key={block.id}>
                       <strong>{timeInZone(block.starts_at, zone)}–{timeInZone(block.ends_at, zone)}</strong>
                       <span>{sectionLabel(block.work_type_id, block.scope_id)}</span>
-                      <small>{block.minutes} min · {block.mode === "PROTECTED" ? "Protégée" :
-                        block.mode === "PREFERRED" ? "Préférentielle" : "Générale"}</small>
+                      <small>{block.minutes} min · capacité physique déclarée</small>
                       <small>Origine : {block.sources.join(", ")}</small>
                     </div>)}
                   {occurrences.filter((item) => item.original_local_date === date).map((occurrence) =>
@@ -523,7 +638,7 @@ export function AvailabilityPlanner({ workTypes, tasks, onWorkTypesChanged }: {
                 </div>;
               })}
             </div>
-            <p className="muted">La grille montre la capacité effective déclarée, y compris les blocs manuels historiques. Les événements Google et réservations réduisent séparément le temps libre vérifié. Une plage qui traverse minuit est listée à son jour de départ.</p>
+            <p className="muted">La grille décrit la capacité physique déclarée et ses exceptions datées. Les événements Google et réservations réduisent séparément le temps libre vérifié. Une plage qui traverse minuit est listée à son jour de départ.</p>
           </section>
           <section className="availabilityCard">
             <h3>Dérogations et exceptions</h3>
@@ -541,15 +656,15 @@ export function AvailabilityPlanner({ workTypes, tasks, onWorkTypesChanged }: {
               <div className="availabilityFields">
                 <label>Action<select value={exceptionDraft.action} onChange={(event) =>
                   updateException({ action: event.target.value as Action })}>
-                  <option value="UNAVAILABLE">Indisponibilité réelle</option><option value="ADD">Ajouter une plage</option>
+                  <option value="UNAVAILABLE">Indisponibilité physique</option><option value="ADD">Disponibilité physique datée</option>
                   <option value="CANCEL">Annuler une occurrence</option><option value="REPLACE">Remplacer une occurrence</option>
                 </select></label>
                 {(exceptionDraft.action === "UNAVAILABLE" || exceptionDraft.action === "ADD") && <label>
                    Portée de la dérogation<select value={exceptionDraft.scope_id} onChange={(event) =>
                      updateException({ scope_id: event.target.value })}>
                      <option value="">{exceptionDraft.action === "UNAVAILABLE" ?
-                       "Globale — tous les parents" : "Compatibilité (héritage)"}</option>
-                     {catalog?.scopes.filter((scope) => !scope.is_compatibility && scope.state === "ACTIVE")
+                       "Globale — tous les parents" : "Aucun parent"}</option>
+                     {catalog?.scopes.filter((scope) => scope.state === "ACTIVE")
                        .map((scope) => <option key={scope.id} value={scope.id}>{scope.name}</option>)}
                    </select></label>}
                  {(exceptionDraft.action === "CANCEL" || exceptionDraft.action === "REPLACE") && <>
@@ -566,23 +681,6 @@ export function AvailabilityPlanner({ workTypes, tasks, onWorkTypesChanged }: {
                     onChange={(event) => updateException({ starts_at: event.target.value })} /></label>
                   <label>Fin<input type="datetime-local" required value={exceptionDraft.ends_at}
                     onChange={(event) => updateException({ ends_at: event.target.value })} /></label>
-                </>}
-                {exceptionDraft.action !== "CANCEL" && exceptionDraft.action !== "UNAVAILABLE" && <>
-                  <label>Nature<select value={exceptionDraft.kind} onChange={(event) =>
-                    updateException({ kind: event.target.value as Kind })}>
-                    <option value="GENERAL">Générale</option><option value="CATEGORIZED">Par type</option>
-                  </select></label>
-                  {exceptionDraft.kind === "CATEGORIZED" && <>
-                    <label>Type<select required value={exceptionDraft.work_type_id} onChange={(event) =>
-                      updateException({ work_type_id: event.target.value })}>
-                      <option value="">Choisir…</option>
-                      {workTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
-                    </select></label>
-                    <label>Mode<select value={exceptionDraft.mode} onChange={(event) =>
-                      updateException({ mode: event.target.value as Mode })}>
-                      <option value="PREFERRED">Préférentielle</option><option value="PROTECTED">Protégée</option>
-                    </select></label>
-                  </>}
                 </>}
                 <label>Fuseau IANA<input value={exceptionDraft.timezone_name}
                   onChange={(event) => updateException({ timezone_name: event.target.value })} /></label>
