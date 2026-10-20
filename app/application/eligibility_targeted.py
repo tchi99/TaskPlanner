@@ -16,7 +16,7 @@ from app.application.eligibility_edits import (
     ALGORITHM as LEGACY_ALGORITHM, _digest, _event, _projection, _validate,
 )
 from app.application.uow import UnitOfWork
-from app.domain.eligibility import EligibilityException, EligibilityRevision, EligibilitySeries
+from app.domain.eligibility import EligibilityAction, EligibilityException, EligibilityRevision, EligibilitySeries
 from app.domain.recurring_availability import RuleConflict
 from app.domain.schedule_scopes import compatibility_scope_id
 
@@ -160,27 +160,38 @@ def _plan(uow: UnitOfWork, owner: str, draft):
         day = exc.original_local_date.weekday()
         decision = decisions.get(exc.id)
         if decision and (decision.expected_version != exc.version
-                         or decision.action not in ("KEEP", "DISABLE")):
+                         or decision.action not in ("KEEP", "REPLACE", "DISABLE")):
             raise RuleConflict("exception changed or unsupported resolution")
         target = replacement if day in selected else children.get(day)
         # An affected weekday requires an explicit decision, even when it is
         # possible to preserve the exception on the replacement occurrence.
         if day in selected and decision is None:
             unresolved.append({"exception_id": str(exc.id), "expected_version": exc.version,
-                               "choices": ["KEEP", "DISABLE"] if target else ["DISABLE"]})
+                               "choices": ["KEEP", "REPLACE", "DISABLE"] if target else ["DISABLE"]})
         if day not in selected and decision is not None:
             raise ValueError("unselected weekday exceptions are preserved automatically")
         action = decision.action if decision else ("DISABLE" if day in selected else "KEEP")
-        if action == "KEEP" and (target is None or _active(target, exc.original_local_date) is None):
+        if action in ("KEEP", "REPLACE") and (
+                target is None or _active(target, exc.original_local_date) is None):
             raise ValueError("exception cannot be preserved without a target occurrence")
+        if decision is not None:
+            if action == "REPLACE" and decision.replacement_action is None:
+                raise ValueError("REPLACE must specify replacement_action")
+            if action != "REPLACE" and (decision.replacement_action is not None
+                                       or decision.starts_at is not None or decision.ends_at is not None):
+                raise ValueError("only REPLACE can supply replacement fields")
         touched.add(exc.id)
         revised_exceptions.append(replace(exc, version=exc.version + 1, enabled=False))
         successor_id = None
-        if action == "KEEP":
+        if action in ("KEEP", "REPLACE"):
             successor_id = uuid5(NAMESPACE_URL, f"tp027a:{draft.draft_id}:exception:{exc.id}:{target.id}")
             successors.append(EligibilityException(
                 successor_id, owner, target.id, exc.original_local_date, 1,
-                exc.action, exc.timezone_name, exc.starts_at, exc.ends_at, True,
+                decision.replacement_action if action == "REPLACE" else exc.action,
+                exc.timezone_name,
+                decision.starts_at if action == "REPLACE" else exc.starts_at,
+                decision.ends_at if action == "REPLACE" else exc.ends_at,
+                True,
             ))
         changes.append({"exception_id": str(exc.id), "action": action,
                         "successor_id": str(successor_id) if successor_id else None})
