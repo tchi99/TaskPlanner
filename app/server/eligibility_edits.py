@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.application.eligibility_edits import (
-    EligibilityDraft, read_series, preview_edit, confirm_edit,
+    EligibilityDraft, EligibilityExceptionDecision, read_series, preview_edit, confirm_edit,
 )
 from app.application.uow import UnitOfWork
 from app.domain.eligibility import EligibilityConflict
@@ -17,6 +17,13 @@ from app.server.recurring_availability import _owner
 
 router = APIRouter(prefix="/api/availability/eligibility-edits",
                    tags=["eligibility-edits"])
+
+
+class ExceptionDecisionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    exception_id: UUID
+    expected_version: int = Field(ge=1)
+    action: str
 
 
 class DraftInput(BaseModel):
@@ -36,9 +43,16 @@ class DraftInput(BaseModel):
     enabled: bool = True
     start_fold: int | None = Field(default=None, ge=0, le=1)
     end_fold: int | None = Field(default=None, ge=0, le=1)
+    target_days_of_week: tuple[int, ...] | None = None
+    exception_decisions: tuple[ExceptionDecisionInput, ...] = ()
 
     def domain(self) -> EligibilityDraft:
-        return EligibilityDraft(**{name: getattr(self, name) for name in DraftInput.model_fields})
+        data = {name: getattr(self, name) for name in DraftInput.model_fields}
+        data["exception_decisions"] = tuple(
+            EligibilityExceptionDecision(**decision.model_dump())
+            for decision in self.exception_decisions
+        )
+        return EligibilityDraft(**data)
 
 
 class Confirmation(DraftInput):
