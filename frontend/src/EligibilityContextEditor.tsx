@@ -255,8 +255,9 @@ export function EligibilityContextEditor({ scopeId, workTypeId, zone, seriesId,
     {error && <p role="alert" className="error">{error}</p>}
     {preview && <div className="eligPreview" aria-live="polite">
       <h5>Aperçu serveur · {preview.projection_days ?? "occurrence datée"}</h5>
-      <p>Capacité physique : {preview.before_physical_minutes} → {preview.after_physical_minutes} min.
-        Les permissions superposées ne s'additionnent pas.</p>
+      {preview.before_physical_minutes !== undefined && <p>Capacité physique :
+        {preview.before_physical_minutes} → {preview.after_physical_minutes} min.
+        Les permissions superposées ne s'additionnent pas.</p>}
       {preview.consequences && <ul>{preview.consequences.map((item, i) => <li key={i}>{item}</li>)}</ul>}
       {!!preview.future_revisions_superseded?.length &&
         <p>Révisions futures remplacées : {preview.future_revisions_superseded.join(", ")}.</p>}
