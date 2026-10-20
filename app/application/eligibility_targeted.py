@@ -152,6 +152,7 @@ def _plan(uow: UnitOfWork, owner: str, draft):
     successors = []
     changes = []
     touched = set()
+    unresolved = []
     for exc in old_exceptions:
         if not exc.enabled or exc.series_id != current.id or exc.original_local_date < draft.effective_from:
             revised_exceptions.append(exc)
@@ -165,10 +166,11 @@ def _plan(uow: UnitOfWork, owner: str, draft):
         # An affected weekday requires an explicit decision, even when it is
         # possible to preserve the exception on the replacement occurrence.
         if day in selected and decision is None:
-            raise ValueError("UNRESOLVED_ELIGIBILITY_EXCEPTIONS: preview requires a decision")
+            unresolved.append({"exception_id": str(exc.id), "expected_version": exc.version,
+                               "choices": ["KEEP", "DISABLE"] if target else ["DISABLE"]})
         if day not in selected and decision is not None:
             raise ValueError("unselected weekday exceptions are preserved automatically")
-        action = decision.action if decision else "KEEP"
+        action = decision.action if decision else ("DISABLE" if day in selected else "KEEP")
         if action == "KEEP" and (target is None or _active(target, exc.original_local_date) is None):
             raise ValueError("exception cannot be preserved without a target occurrence")
         touched.add(exc.id)
@@ -230,10 +232,11 @@ def _plan(uow: UnitOfWork, owner: str, draft):
         "future_revisions_superseded": [
             rev.number for rev in current.revisions if rev.effective_from >= start],
         "preserved_weekday_series": {str(day): str(child.id) for day, child in children.items()},
-        "exception_decisions": changes,
+        "exception_decisions": changes, "unresolved_exceptions": unresolved,
         "before_physical_minutes": before[1].physical_minutes,
         "after_physical_minutes": after[1].physical_minutes,
-        "booking_inventory": inventory, "blocking_issues": invalid + civil,
+        "booking_inventory": inventory,
+        "blocking_issues": invalid + civil + (["UNRESOLVED_ELIGIBILITY_EXCEPTIONS"] if unresolved else []),
         "projection_days": 93, "calendar_checked": False, "calendar_written": False,
         "consequences": ["Targeted future occurrences are replaced atomically.",
                          "Unselected future weekday revisions remain traceable.",
