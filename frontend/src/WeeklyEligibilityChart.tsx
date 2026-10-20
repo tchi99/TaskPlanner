@@ -260,7 +260,7 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
       const intent: GridIntent = {
         startsAtLocal: startTime, endsAtLocal: endTime,
         daysOfWeek: [day.weekday],
-        targetDaysOfWeek: source ? [gesture.originDay] : undefined,
+        targetDaysOfWeek: source ? [(new Date(source.original_local_date + "T12:00:00Z").getUTCDay() + 6) % 7] : undefined,
         startsAtInstant: startInstant, endsAtInstant: endInstant,
       };
       if (source) chooseSource(source, unchanged ? null : intent, day.local_date);
@@ -417,7 +417,7 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
                     <button type="button" className="eligVHandle eligStartHandle"
                       aria-label={"Modifier le début : " + title}
                       onPointerDown={(event) => begin(event, "start", day, source)}
-                      onClick={() => chooseSource(source)} />
+                      onClick={(event) => { if (event.detail === 0) chooseSource(source); }} />
                     <button type="button" className="eligVBar" title={title} aria-label={title}
                       onPointerDown={(event) => begin(event, "move", day, source)}
                       onClick={(event) => { if (event.detail === 0) chooseSource(source); }}>
