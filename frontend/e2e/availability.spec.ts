@@ -244,6 +244,15 @@ async function prepareWindow(page: Page, priority = "") {
   return panel;
 }
 
+// Mobile intentionally exposes one day at a time. Select the fixture's Tuesday
+// before interacting with its permission, rather than targeting a hidden column.
+async function showTuesdayWhenMobile(page: Page, projectName: string) {
+  if (projectName !== "mobile-chromium") return;
+  const navigation = page.getByRole("navigation", { name: "Jour visible sur mobile" });
+  await navigation.getByRole("button", { name: "Jour suivant →" }).click();
+  await expect(page.locator('.eligDayCol[data-day="1"] .eligDayTrack')).toBeVisible();
+}
+
 test("base vierge : parcours guidé, grille sans barre et aucun parent synthétique", async ({ page }) => {
   const app = await setup(page);
   await expect(page.getByRole("region", { name: "Première configuration" })).toBeVisible();
@@ -317,7 +326,7 @@ test("priorité facultative et capacités non additives sur permissions superpos
   await expect(page.getByText(/les permissions superposées/i).first()).toBeVisible();
 });
 
-test("édition contextuelle d'une permission existante sans conversion historique", async ({ page }) => {
+test("édition contextuelle d'une permission existante sans conversion historique", async ({ page }, testInfo) => {
   const app = await setup(page);
   await prepareParentAndType(page);
   await prepareEnvelope(page);
@@ -325,6 +334,7 @@ test("édition contextuelle d'une permission existante sans conversion historiqu
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Confirmer explicitement" }).click();
   await expect.poll(() => app.getState().confirmed).toBe(1);
+  await showTuesdayWhenMobile(page, testInfo.project.name);
   await page.locator(".eligVBar").first().click();
   await expect(page.getByRole("region", { name: "Panneau contextuel de la grille" })).toBeVisible();
   await expect(page.getByText(/Convertir la règle historique/)).toHaveCount(0);
@@ -373,11 +383,14 @@ test("aucune saisie manuelle exclusive dans Capacité et propositions", async ({
 });
 
 
-test("TP-027B : sélection de plage dans la grille crée un brouillon sans mutation", async ({ page }) => {
+test("TP-027B : sélection de plage dans la grille crée un brouillon sans mutation", async ({ page }, testInfo) => {
   const app = await setup(page);
   await prepareParentAndType(page);
   await prepareEnvelope(page);
+  await showTuesdayWhenMobile(page, testInfo.project.name);
   const track = page.locator('.eligDayCol[data-day="1"] .eligDayTrack');
+  // Pointer coordinates are viewport-relative: ensure the tall grid is on screen.
+  await track.scrollIntoViewIfNeeded();
   const box = await track.boundingBox();
   expect(box).not.toBeNull();
   if (!box) return;
@@ -397,7 +410,7 @@ test("TP-027B : sélection de plage dans la grille crée un brouillon sans mutat
   expect(app.getState().confirmed).toBe(0);
 });
 
-test("TP-027B : source éditable entière au clavier, sans confirmer l'occupation", async ({ page }) => {
+test("TP-027B : source éditable entière au clavier, sans confirmer l'occupation", async ({ page }, testInfo) => {
   const app = await setup(page, { existingBooking: true });
   await prepareParentAndType(page);
   await prepareEnvelope(page);
@@ -405,7 +418,9 @@ test("TP-027B : source éditable entière au clavier, sans confirmer l'occupatio
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Confirmer explicitement" }).click();
   await expect.poll(() => app.getState().confirmed).toBe(1);
+  await showTuesdayWhenMobile(page, testInfo.project.name);
   const bar = page.locator(".eligVBar").first();
+  await bar.scrollIntoViewIfNeeded();
   await bar.focus();
   await page.keyboard.press("Enter");
   const panel = page.getByRole("region", { name: "Panneau contextuel de la grille" });
