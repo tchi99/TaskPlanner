@@ -480,7 +480,7 @@ export function AvailabilityPlanner({ workTypes, tasks, onWorkTypesChanged }: {
             <p className="muted">Une enveloppe physique par parent, sans double comptage.
               Les sous-catégories partagent ses minutes admissibles.</p>
           </section>
-          {selectedScopeId && <WeeklyEligibilityChart
+          {selectedScopeId && <WeeklyEligibilityChart key={selectedScopeId + ":" + chartRevision}
             week={week} zone={zone} scopeId={selectedScopeId}
             catalog={catalog} workTypes={workTypes} tasks={tasks}
             requestNewWindow={newWindowRequest} onSelectScope={selectScope}
