@@ -56,6 +56,13 @@ def _plan(uow: UnitOfWork, owner: str, draft: DatedPermissionDraft):
         if (draft.starts_at.tzinfo is None or draft.starts_at.utcoffset() is None
                 or draft.ends_at.tzinfo is None or draft.ends_at.utcoffset() is None):
             raise ValueError("MOVE instants must include explicit offsets")
+        # Offset-aware input is not sufficient by itself: 02:30-05:00 on
+        # Toronto's spring-forward day denotes 03:30 local, not 02:30.
+        for instant in (draft.starts_at, draft.ends_at):
+            local = instant.astimezone(zone)
+            if (local.date(), local.hour, local.minute, local.utcoffset()) != (
+                    instant.date(), instant.hour, instant.minute, instant.utcoffset()):
+                raise ValueError("MOVE instant has a non-existent or mismatched local time/offset")
         if draft.starts_at.astimezone(zone).date() < datetime.now(zone).date():
             raise ValueError("MOVE target cannot be in the past")
         if abs((draft.starts_at.astimezone(zone).date() - draft.original_local_date).days) > 92:
