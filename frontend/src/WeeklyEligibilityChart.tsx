@@ -124,6 +124,7 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
   const [newType, setNewType] = useState("");
   const [gesture, setGesture] = useState<Gesture | null>(null);
   const canvas = useRef<HTMLDivElement | null>(null);
+  const handledNewWindow = useRef(0);
   const [taskId, setTaskId] = useState("");
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [proposalBusy, setProposalBusy] = useState(false);
@@ -149,7 +150,8 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
   }, [week, zone, scopeId, retry]);
 
   useEffect(() => {
-    if (requestNewWindow && scopeId) {
+    if (requestNewWindow > handledNewWindow.current && scopeId) {
+      handledNewWindow.current = requestNewWindow;
       setLayer("configuration");
       setSelected({ source: null, workTypeId: "", selectedDate: week, intent: null });
     }
