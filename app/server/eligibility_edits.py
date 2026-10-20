@@ -109,7 +109,7 @@ class DatedPermissionInput(BaseModel):
     enabled: bool = True
 
     def domain(self) -> DatedPermissionDraft:
-        return DatedPermissionDraft(**self.model_dump())
+        return DatedPermissionDraft(**{name: getattr(self, name) for name in DatedPermissionInput.model_fields})
 
 
 class DatedPermissionConfirmation(DatedPermissionInput):
