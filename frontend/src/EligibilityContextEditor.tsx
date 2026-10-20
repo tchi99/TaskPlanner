@@ -121,7 +121,7 @@ export function EligibilityContextEditor({ scopeId, workTypeId, zone, seriesId,
   function change(patch: Partial<Draft>) {
     previewToken.current++;
     setDraft((value) => ({ ...value, ...patch, draft_id: crypto.randomUUID() }));
-    setPreview(null); setAcknowledged(false); setError("");
+    setBusy(false); setPreview(null); setAcknowledged(false); setError("");
   }
   function offsetInstant(iso: string) {
     // MOVE needs wall-clock + explicit offset in the series timezone. UTC ISO
