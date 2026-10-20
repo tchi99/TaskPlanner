@@ -161,10 +161,13 @@ def test_dated_remove_and_move_are_scoped_and_versioned(runtime):
                      starts_at="2027-01-14T10:15:00-05:00",
                      ends_at="2027-01-14T11:45:00-05:00")
     planned = _preview(client, EDIT + "/exceptions", changed)
-    committed = _confirm(client, EDIT + "/exceptions", changed, planned)
+    command_id = str(uuid4())
+    committed = _confirm(client, EDIT + "/exceptions", changed, planned,
+                         command_id=command_id)
     assert committed.status_code == 200, committed.text
     exc_id = committed.json()["exception_id"]
-    assert _confirm(client, EDIT + "/exceptions", changed, planned).status_code == 200
+    assert _confirm(client, EDIT + "/exceptions", changed, planned,
+                    command_id=command_id).json() == committed.json()
     disabled = _dated(source, day, "REMOVE", exception_id=exc_id,
                       expected_version=1, starts_at=None, ends_at=None)
     before = _preview(client, EDIT + "/exceptions", disabled)
@@ -226,3 +229,29 @@ def test_dst_nonexistent_dated_move_is_rejected(runtime):
     # or an invalid civil destination must never be committed.
     result = client.post(EDIT + "/exceptions/preview", json=invalid)
     assert result.status_code in (409, 422), result.text
+
+
+def test_confirmed_booking_outside_parent_envelope_remains_visible(runtime):
+    from app.domain.time_blocks import ConfirmedTimeBlock
+    client, factory = runtime
+    scope, typ, source = _setup(client)
+    task = client.post("/api/tasks", json={
+        "title": "Booking outside physical envelope", "estimated_minutes": 60,
+    })
+    assert task.status_code == 201, task.text
+    with SqlAlchemyUnitOfWork(factory) as uow:
+        booking = ConfirmedTimeBlock(
+            week_start=date(2027, 1, 11), task_id=UUID(task.json()["id"]),
+            segment_id=None, work_type_id=UUID(typ),
+            starts_at=datetime(2027, 1, 12, 13, tzinfo=ZoneInfo(ZONE)),
+            ends_at=datetime(2027, 1, 12, 14, tzinfo=ZoneInfo(ZONE)),
+            scope_id=UUID(scope),
+        )
+        uow.time_blocks.add(booking)
+        uow.commit()
+    result = client.get(WEEK, params={
+        "week_start": "2027-01-11", "timezone_name": ZONE, "scope_id": scope,
+    })
+    assert result.status_code == 200, result.text
+    assert any(item["booking_id"] == str(booking.id)
+               and item["outside_envelope"] for item in result.json()["occupations"])
