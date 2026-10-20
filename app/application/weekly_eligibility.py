@@ -15,6 +15,7 @@ from app.application.effective_availability import _state
 from app.application.planning_availability import effective_week
 from app.application.uow import UnitOfWork
 from app.domain.capacity import validate_week_start
+from app.domain.eligibility import expand_eligibility
 from app.domain.schedule_scopes import compatibility_scope_id
 from app.domain.time_blocks import _free_intervals
 from app.infrastructure.google_calendar import (
@@ -156,8 +157,8 @@ def weekly_eligibility(
         spans = tuple((item.starts_at, item.ends_at) for item in fragments)
         visible_bookings = tuple(item for item in confirmed
                                  if item.scope_id == selected
-                                 and _intersects(_instant(item.starts_at),
-                                                 _instant(item.ends_at), spans))
+                                 and _instant(item.starts_at) < end
+                                 and _instant(item.ends_at) > start)
         # Google busy time is global; clip to this parent's declared physical time.
         visible_events = tuple(item for item in commitments
                                if _intersects(_instant(item.starts_at),
@@ -185,19 +186,21 @@ def weekly_eligibility(
                     "choices": [_choice_details(choice, series) for choice in item.choices],
                     "verification": "DECLARED_ONLY",
                 })
+        # Confirmed bookings remain visible even entirely outside an edited
+        # parent envelope; a conflict must never disappear with its bar.
         occupations = []
         for booking in visible_bookings:
-            for fragment in fragments:
-                lo = max(_instant(booking.starts_at), fragment.starts_at)
-                hi = min(_instant(booking.ends_at), fragment.ends_at)
-                if lo < hi:
-                    for piece in _day_pieces(lo, hi, zone, week_start):
-                        occupations.append({
-                            **piece, "kind": "LOCAL_CONFIRMED", "booking_id": booking.id,
-                            "work_type_id": booking.work_type_id,
-                            "task_id": booking.task_id,
-                            "scope_id": selected, "source": f"BOOKING:{booking.id}",
-                        })
+            lo = max(_instant(booking.starts_at), start)
+            hi = min(_instant(booking.ends_at), end)
+            within_envelope = _intersects(lo, hi, spans)
+            for piece in _day_pieces(lo, hi, zone, week_start):
+                occupations.append({
+                    **piece, "kind": "LOCAL_CONFIRMED", "booking_id": booking.id,
+                    "work_type_id": booking.work_type_id,
+                    "task_id": booking.task_id, "scope_id": selected,
+                    "source": f"BOOKING:{booking.id}",
+                    "outside_envelope": not within_envelope,
+                })
         if calendar_state == "VERIFIED":
             for event in visible_events:
                 for fragment in fragments:
@@ -236,6 +239,45 @@ def weekly_eligibility(
                             "scope_ids": (selected,), "booking_id": booking.id,
                             "state": "OPEN",
                         })
+        # Fragments are presentation cuts; these are stable, complete edit
+        # targets with source-local timezone and the applicable revision.
+        editable_permissions = []
+        occurrences, _ = expand_eligibility(
+            tuple(series.values()), tuple(uow.eligibility.list_exceptions(owner_id)),
+            week_start, week_start + timedelta(days=7),
+        )
+        exceptions_by_key = {
+            (exc.series_id, exc.original_local_date): exc
+            for exc in uow.eligibility.list_exceptions(owner_id) if exc.enabled
+        }
+        for occurrence in occurrences:
+            source = series.get(str(occurrence.series_id))
+            if source is None or source.scope_id != selected:
+                continue
+            lo = max(occurrence.starts_at, start)
+            hi = min(occurrence.ends_at, end)
+            if lo >= hi:
+                continue
+            revision = next(row for row in source.revisions
+                            if row.number == occurrence.revision)
+            exc = exceptions_by_key.get((source.id, occurrence.original_local_date))
+            editable_permissions.append({
+                "series_id": source.id, "expected_version": source.version,
+                "revision": revision.number,
+                "effective_from": revision.effective_from,
+                "timezone_name": revision.timezone_name,
+                "days_of_week": revision.days_of_week,
+                "starts_at_local": revision.starts_at_local,
+                "ends_at_local": revision.ends_at_local,
+                "start_fold": revision.start_fold, "end_fold": revision.end_fold,
+                "priority_rank": revision.priority_rank,
+                "scope_id": source.scope_id, "work_type_id": source.work_type_id,
+                "original_local_date": occurrence.original_local_date,
+                "starts_at": occurrence.starts_at, "ends_at": occurrence.ends_at,
+                "source": occurrence.source,
+                "exception_id": exc.id if exc else None,
+                "exception_version": exc.version if exc else None,
+            })
         expansion_issues = [{
             "code": issue.code, "series_id": issue.series_id,
             "original_local_date": issue.original_local_date,
@@ -261,6 +303,7 @@ def weekly_eligibility(
                 physical_minutes - checked_free if checked_free is not None else None),
             "verified_free_minutes": checked_free,
             "fragments": bars,
+            "editable_permissions": editable_permissions,
             "occupations": occupations,
             "issues": issues,
             "expansion_issues": expansion_issues,

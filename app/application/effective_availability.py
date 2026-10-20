@@ -126,9 +126,9 @@ def _window(value: AvailabilityException) -> tuple[date, date]:
 
 
 def _snapshot(rule_state, exception_state, manual, confirmed, proposed, old_id,
-              scopes=(), affiliations=()):
+              scopes=(), affiliations=(), permissions=(), permission_exceptions=()):
     payload = {
-        "algorithm": "TP-022B/v1",
+        "algorithm": "TP-027A/physical-exception-v2",
         "rules": [asdict(item) for item in rule_state],
         "exceptions": [asdict(item) for item in exception_state],
         "manual": [asdict(item) for item in manual],
@@ -136,6 +136,10 @@ def _snapshot(rule_state, exception_state, manual, confirmed, proposed, old_id,
         "proposed": asdict(proposed), "old_id": str(old_id),
         "scopes": [asdict(v) for v in scopes],
         "affiliations": [asdict(v) for v in affiliations],
+        # Dated physical exceptions can affect shared permissions; the
+        # fingerprint must invalidate a preview after either side changes.
+        "eligibility_series": [asdict(v) for v in permissions],
+        "eligibility_exceptions": [asdict(v) for v in permission_exceptions],
     }
     return sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
@@ -164,8 +168,11 @@ def _preview_loaded(uow: UnitOfWork, owner_id: str, proposed: AvailabilityExcept
                                    start, end, proposed.timezone_name,
                                    compatibility_id=compatibility_scope_id(owner_id),
                                    affiliations=affiliations)
-    fingerprint = _snapshot(rules, exceptions, manual, confirmed, proposed, old_id,
-                            scopes, affiliations)
+    fingerprint = _snapshot(
+        rules, exceptions, manual, confirmed, proposed, old_id,
+        scopes, affiliations, tuple(uow.eligibility.list_owner(owner_id)),
+        tuple(uow.eligibility.list_exceptions(owner_id)),
+    )
     return fingerprint, projection, (start, end)
 
 

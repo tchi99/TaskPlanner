@@ -17,7 +17,7 @@ from app.application.history import HistoryEvent, HistorySource
 from app.application.uow import UnitOfWork
 from app.domain.effective_availability import project_effective
 from app.domain.eligibility import (
-    EligibilityConflict, EligibilityRevision, EligibilitySeries,
+    EligibilityAction, EligibilityConflict, EligibilityRevision, EligibilitySeries,
 )
 from app.domain.eligibility_projection import project_eligibility, reconcile_booking_issues
 from app.domain.recurring_availability import RuleConflict
@@ -38,6 +38,16 @@ _BLOCKING = {
 
 
 @dataclass(frozen=True)
+class EligibilityExceptionDecision:
+    exception_id: UUID
+    expected_version: int
+    action: str  # KEEP, REPLACE, DISABLE
+    replacement_action: EligibilityAction | None = None
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class EligibilityDraft:
     draft_id: UUID
     series_id: UUID | None
@@ -53,6 +63,8 @@ class EligibilityDraft:
     enabled: bool
     start_fold: int | None = None
     end_fold: int | None = None
+    target_days_of_week: tuple[int, ...] | None = None
+    exception_decisions: tuple[EligibilityExceptionDecision, ...] = ()
 
 
 def _digest(value: object) -> str:
@@ -212,6 +224,9 @@ def _plan(uow: UnitOfWork, owner: str, draft: EligibilityDraft):
 
 
 def preview_edit(uow: UnitOfWork, owner: str, draft: EligibilityDraft) -> dict:
+    if draft.target_days_of_week is not None:
+        from app.application.eligibility_targeted import preview_targeted
+        return preview_targeted(uow, owner, draft)
     with uow:
         return _plan(uow, owner, draft)[0]
 
@@ -219,6 +234,12 @@ def preview_edit(uow: UnitOfWork, owner: str, draft: EligibilityDraft) -> dict:
 def confirm_edit(uow: UnitOfWork, owner: str, draft: EligibilityDraft, *,
                  command_id: UUID, fingerprint: str, confirmed: bool,
                  acknowledge_bookings: bool) -> dict:
+    if draft.target_days_of_week is not None:
+        from app.application.eligibility_targeted import confirm_targeted
+        return confirm_targeted(
+            uow, owner, draft, command_id=command_id, fingerprint=fingerprint,
+            confirmed=confirmed, acknowledge_bookings=acknowledge_bookings,
+        )
     if not confirmed:
         raise ValueError("explicit confirmation required")
     payload_hash = _digest({"action": ALGORITHM, "draft": asdict(draft),

@@ -471,7 +471,7 @@ def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
             compatibility_id=compatibility, affiliations=affiliations,
         )
         return reconcile_booking_issues(physical, eligibility, booked,
-                                        compatibility)[0]
+                                        compatibility)
 
     before = project_effective(rules, exceptions, manual, bounded_bookings,
                                draft.effective_from, end, draft.timezone_name,
@@ -481,11 +481,39 @@ def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
                               draft.effective_from, end, draft.timezone_name,
                               compatibility_id=compatibility_scope_id(owner),
                               affiliations=uow.schedule_scopes.affiliations(owner))
-    before = with_shared(before, bounded_bookings, draft.effective_from, end)
-    after = with_shared(after, bounded_bookings, draft.effective_from, end)
+    before, before_permissions = with_shared(before, bounded_bookings, draft.effective_from, end)
+    after, after_permissions = with_shared(after, bounded_bookings, draft.effective_from, end)
     invalid, diagnostics, diagnostics_truncated = _invalid_details(
         before, after, rules, future_rules, exceptions, proposed_exceptions,
         manual, draft.timezone_name)
+    # A parent GENERAL reduction must not create a new permission outside its
+    # physical envelope. Compare UTC coverage, not newly split fragment IDs.
+    prior = {}
+    for issue in before_permissions.issues:
+        if issue.code in ("ELIGIBILITY_OUTSIDE_PHYSICAL_ENVELOPE",
+                          "ELIGIBILITY_OVER_LEGACY_EXCLUSIVE",
+                          "ELIGIBILITY_SCOPE_MISMATCH"):
+            prior.setdefault((issue.code, tuple(issue.scope_ids)), []).append(
+                (issue.starts_at, issue.ends_at))
+    for issue in after_permissions.issues:
+        if issue.code not in ("ELIGIBILITY_OUTSIDE_PHYSICAL_ENVELOPE",
+                              "ELIGIBILITY_OVER_LEGACY_EXCLUSIVE",
+                              "ELIGIBILITY_SCOPE_MISMATCH"):
+            continue
+        spans = prior.get((issue.code, tuple(issue.scope_ids)), ())
+        if any(a <= issue.starts_at and b >= issue.ends_at for a, b in spans):
+            continue
+        invalid = sorted(set(invalid) | {issue.code})
+        diagnostics.append({
+            "code": issue.code, "status": "NEW",
+            "date": issue.starts_at.astimezone(ZoneInfo(draft.timezone_name)).date().isoformat(),
+            "timezone_name": draft.timezone_name,
+            "starts_at": issue.starts_at.astimezone(ZoneInfo(draft.timezone_name)).isoformat(),
+            "ends_at": issue.ends_at.astimezone(ZoneInfo(draft.timezone_name)).isoformat(),
+            "scope_ids": [str(scope) for scope in issue.scope_ids],
+            "sources": list(issue.sources),
+            "remediation": "Adapter explicitement la permission ou conserver l'enveloppe physique.",
+        })
     # Inventory ALL finite persisted bookings, even when they lie beyond the
     # 93-day numeric projection. Never mutate them in a weekly schedule edit.
     conflicts = []
@@ -504,8 +532,8 @@ def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
                                   (booking,), local, stop, draft.timezone_name,
                                   compatibility_id=compatibility_scope_id(owner),
                                   affiliations=uow.schedule_scopes.affiliations(owner))
-        old_p = with_shared(old_p, (booking,), local, stop)
-        new_p = with_shared(new_p, (booking,), local, stop)
+        old_p, _ = with_shared(old_p, (booking,), local, stop)
+        new_p, _ = with_shared(new_p, (booking,), local, stop)
         was = any(i.booking_id == booking.id for i in old_p.issues)
         now = any(i.booking_id == booking.id for i in new_p.issues)
         if now:
@@ -523,6 +551,8 @@ def _plan(uow: UnitOfWork, owner: str, draft: WeeklyDraft):
         "bookings": [asdict(v) for v in bookings],
         "manual": [asdict(v) for v in manual],
         "work_types": sorted(str(v.id) for v in uow.work_types.list_all()),
+        "shared_permission_series": [asdict(v) for v in shared_series],
+        "shared_permission_exceptions": [asdict(v) for v in shared_exceptions],
         "modified": sorted(_key_str(k) for k in modified),
         "conflicts": conflicts, "invalid": invalid,
         "invalid_diagnostics": diagnostics, "diagnostics_truncated": diagnostics_truncated,
