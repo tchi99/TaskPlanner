@@ -174,11 +174,11 @@ def confirm_dated(uow: UnitOfWork, owner: str, draft: DatedPermissionDraft, *,
             uow.eligibility.add_exception(value)
         else:
             uow.eligibility.append_exception(value, expected_version=old.version)
-        uow.history.append(_event(value.id, correlation, "ELIGIBILITY_EXCEPTION_CHANGED", {
+        uow.history.append(_event(value.series_id, correlation, "ELIGIBILITY_EXCEPTION_CHANGED", {
             "operation": "CREATE" if old is None else "REVISE",
-            "series_id": str(value.series_id), "original_local_date": str(value.original_local_date),
+            "exception_id": str(value.id), "series_id": str(value.series_id), "original_local_date": str(value.original_local_date),
             "version": value.version, "action": value.action.value,
-        }, entity_type="ELIGIBILITY_EXCEPTION"))
+        }))
         result = {"applied": True, "exception_id": str(value.id), "version": value.version,
                   "command_id": str(command_id), "correlation_id": str(correlation),
                   "calendar_written": False}

@@ -302,13 +302,18 @@ def confirm_targeted(uow: UnitOfWork, owner: str, draft, *,
         for old, new in zip(old_exceptions, revised_exceptions):
             if new.version > old.version:
                 uow.eligibility.append_exception(new, expected_version=old.version)
-                uow.history.append(_event(old.id, correlation, "ELIGIBILITY_EXCEPTION_DISABLED",
-                                          {"version": new.version}, entity_type="ELIGIBILITY_EXCEPTION"))
+                uow.history.append(_event(old.series_id, correlation, "ELIGIBILITY_EXCEPTION_DISABLED",
+                                          {"exception_id": str(old.id), "version": new.version}))
+        successor_sources = {
+            change["successor_id"]: change["exception_id"]
+            for change in preview["exception_decisions"] if change["successor_id"]
+        }
         for successor in successors:
             uow.eligibility.add_exception(successor)
-            uow.history.append(_event(successor.id, correlation, "ELIGIBILITY_EXCEPTION_DERIVED",
-                                      {"series_id": str(successor.series_id)},
-                                      entity_type="ELIGIBILITY_EXCEPTION"))
+            uow.history.append(_event(successor.series_id, correlation, "ELIGIBILITY_EXCEPTION_DERIVED",
+                                      {"exception_id": str(successor.id),
+                                       "source_exception_id": successor_sources[str(successor.id)],
+                                       "series_id": str(successor.series_id)}))
         uow.history.append(_event(current.id, correlation, "ELIGIBILITY_SERIES_CHANGED",
                                   {"operation": "TARGETED_CUTOVER",
                                    "target_days": list(draft.target_days_of_week),

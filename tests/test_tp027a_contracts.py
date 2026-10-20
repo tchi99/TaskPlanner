@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -154,7 +154,7 @@ def test_two_cutovers_same_effective_date_and_stale_preview(runtime):
 
 
 def test_dated_remove_and_move_are_scoped_and_versioned(runtime):
-    client, _ = runtime
+    client, factory = runtime
     scope, typ, source = _setup(client)
     day = "2027-01-14"
     changed = _dated(source, day, "MOVE",
@@ -166,6 +166,15 @@ def test_dated_remove_and_move_are_scoped_and_versioned(runtime):
                          command_id=command_id)
     assert committed.status_code == 200, committed.text
     exc_id = committed.json()["exception_id"]
+    from app.infrastructure.models import HistoryEventRecord
+    with SqlAlchemyUnitOfWork(factory) as uow:
+        events = uow.session.scalars(select(HistoryEventRecord).where(
+            HistoryEventRecord.event_type == "ELIGIBILITY_EXCEPTION_CHANGED"
+        )).all()
+        assert len(events) == 1
+        assert events[0].entity_type == "ELIGIBILITY_SERIES"
+        assert events[0].entity_id == source
+        assert events[0].payload["exception_id"] == exc_id
     assert _confirm(client, EDIT + "/exceptions", changed, planned,
                     command_id=command_id).json() == committed.json()
     disabled = _dated(source, day, "REMOVE", exception_id=exc_id,
@@ -277,6 +286,19 @@ def test_targeted_cutover_replaces_exception_atomically(runtime):
     response = _confirm(client, EDIT, draft, proposed)
     assert response.status_code == 200, response.text
     with SqlAlchemyUnitOfWork(factory) as uow:
+        from app.infrastructure.models import HistoryEventRecord
+        events = uow.session.scalars(select(HistoryEventRecord).where(
+            HistoryEventRecord.event_type.in_(
+                ("ELIGIBILITY_EXCEPTION_DISABLED", "ELIGIBILITY_EXCEPTION_DERIVED"))
+        )).all()
+        assert len(events) == 2
+        assert all(event.entity_type == "ELIGIBILITY_SERIES" for event in events)
+        assert {event.payload["exception_id"] for event in events} == {
+            original_id, proposed["exception_decisions"][0]["successor_id"],
+        }
+        derived = next(event for event in events
+                       if event.event_type == "ELIGIBILITY_EXCEPTION_DERIVED")
+        assert derived.payload["source_exception_id"] == original_id
         previous = uow.eligibility.get_exception(UUID(original_id),
                                                  "urn:taskplanner:local")
         assert previous.version == 2 and not previous.enabled
