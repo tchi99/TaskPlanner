@@ -285,6 +285,7 @@ test("première permission créée depuis grille vide après aperçu confirmé, 
   await page.getByRole("button", { name: "+ Nouvelle plage" }).first().focus();
   await page.keyboard.press("Enter");
   const panel = page.getByRole("region", { name: "Panneau contextuel de la grille" });
+  await panel.getByRole("checkbox", { name: "Lundi" }).uncheck();
   await panel.getByRole("checkbox", { name: "Mardi" }).check();
   await panel.getByRole("button", { name: "Prévisualiser les conséquences" }).click();
   expect(app.getState().confirmed).toBe(0);
