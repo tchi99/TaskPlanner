@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { apiFetch } from "./auth";
 
 export type EditablePermission = {
@@ -33,8 +33,8 @@ type Draft = {
 type Preview = {
   fingerprint: string; blocking_issues: string[];
   booking_inventory: { id: string }[];
-  before_physical_minutes: number; after_physical_minutes: number;
-  calendar_checked: boolean; consequences: string[]; projection_days: number;
+  before_physical_minutes?: number; after_physical_minutes?: number;
+  calendar_checked: boolean; consequences?: string[]; projection_days?: number;
   unresolved_exceptions?: { exception_id: string; expected_version: number; choices: string[] }[];
   future_revisions_superseded?: number[];
 };
@@ -94,6 +94,7 @@ export function EligibilityContextEditor({ scopeId, workTypeId, zone, seriesId,
   const [preview, setPreview] = useState<Preview | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
   const [unresolved, setUnresolved] = useState<NonNullable<Preview["unresolved_exceptions"]>>([]);
+  const previewToken = useRef(0);
 
   useEffect(() => {
     if (!seriesId || source) return;
@@ -118,8 +119,23 @@ export function EligibilityContextEditor({ scopeId, workTypeId, zone, seriesId,
   }, [seriesId, selectedDate, source, initial]);
 
   function change(patch: Partial<Draft>) {
+    previewToken.current++;
     setDraft((value) => ({ ...value, ...patch, draft_id: crypto.randomUUID() }));
     setPreview(null); setAcknowledged(false); setError("");
+  }
+  function offsetInstant(iso: string) {
+    // MOVE needs wall-clock + explicit offset in the series timezone. UTC ISO
+    // instants (Z) are not an accepted local-wall-time representation.
+    const date = new Date(iso);
+    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: sourceZone,
+      year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit",
+      minute: "2-digit", second: "2-digit", hourCycle: "h23",
+      timeZoneName: "longOffset",
+    }).formatToParts(date);
+    const part = (kind: string) => parts.find((p) => p.type === kind)?.value || "";
+    const offset = part("timeZoneName").replace("GMT", "") || "+00:00";
+    return part("year") + "-" + part("month") + "-" + part("day") +
+      "T" + part("hour") + ":" + part("minute") + ":" + part("second") + offset;
   }
   const datePayload = () => {
     if (!source) throw new Error("Occurrence source requise.");
@@ -129,22 +145,27 @@ export function EligibilityContextEditor({ scopeId, workTypeId, zone, seriesId,
       expected_version: source.exception_version ?? 0,
       original_local_date: source.original_local_date, timezone_name: source.timezone_name,
       action: datedAction,
-      starts_at: datedAction === "MOVE" ? (initial?.startsAtInstant || source.starts_at) : null,
-      ends_at: datedAction === "MOVE" ? (initial?.endsAtInstant || source.ends_at) : null,
+      starts_at: datedAction === "MOVE" ? (initial?.startsAtInstant ? offsetInstant(initial.startsAtInstant) : source.starts_at) : null,
+      ends_at: datedAction === "MOVE" ? (initial?.endsAtInstant ? offsetInstant(initial.endsAtInstant) : source.ends_at) : null,
       enabled: true,
     };
   };
   async function showPreview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError(""); setPreview(null);
+    const token = ++previewToken.current;
     try {
       const endpoint = mode === "dated" ? "/exceptions/preview" : "/preview";
       const payload = mode === "dated" ? datePayload() : draft;
       const result = await request<Preview>(root + endpoint,
         { method: "POST", headers, body: JSON.stringify(payload) });
-      setPreview(result); setUnresolved(result.unresolved_exceptions || []); setAcknowledged(false);
+      if (token === previewToken.current) {
+        setPreview(result); setUnresolved(result.unresolved_exceptions || []);
+        setAcknowledged(false);
+      }
     } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : "Aperçu impossible.");
-    } finally { setBusy(false); }
+      if (token === previewToken.current)
+        setError(reason instanceof Error ? reason.message : "Aperçu impossible.");
+    } finally { if (token === previewToken.current) setBusy(false); }
   }
   async function confirm() {
     if (!preview || preview.blocking_issues.length ||
@@ -176,10 +197,10 @@ export function EligibilityContextEditor({ scopeId, workTypeId, zone, seriesId,
     {loaded && <form className="eligEditForm" onSubmit={(event) => void showPreview(event)}>
       {source && <fieldset><legend>Portée de l'édition</legend>
         <label><input type="radio" name={"edit-mode-" + draft.draft_id}
-          checked={mode === "future"} onChange={() => { setMode("future"); setPreview(null); }} />
+          checked={mode === "future"} onChange={() => { setMode("future"); previewToken.current++; setBusy(false); setPreview(null); }} />
           Occurrences futures des jours ciblés</label>
         <label><input type="radio" name={"edit-mode-" + draft.draft_id}
-          checked={mode === "dated"} onChange={() => { setMode("dated"); setPreview(null); }} />
+          checked={mode === "dated"} onChange={() => { setMode("dated"); previewToken.current++; setBusy(false); setPreview(null); }} />
           Cette occurrence datée uniquement ({source.original_local_date})</label>
       </fieldset>}
       {mode === "future" ? <>
@@ -219,7 +240,7 @@ export function EligibilityContextEditor({ scopeId, workTypeId, zone, seriesId,
         </select></label>
       </> : <>
         <label>Action datée<select value={datedAction}
-          onChange={(event) => { setDatedAction(event.target.value as "MOVE" | "REMOVE"); setPreview(null); }}>
+          onChange={(event) => { setDatedAction(event.target.value as "MOVE" | "REMOVE"); previewToken.current++; setBusy(false); setPreview(null); }}>
           <option value="MOVE">Déplacer cette occurrence</option>
           <option value="REMOVE">Retirer cette occurrence</option>
         </select></label>
@@ -233,10 +254,10 @@ export function EligibilityContextEditor({ scopeId, workTypeId, zone, seriesId,
     </form>}
     {error && <p role="alert" className="error">{error}</p>}
     {preview && <div className="eligPreview" aria-live="polite">
-      <h5>Aperçu serveur · {preview.projection_days} jours</h5>
+      <h5>Aperçu serveur · {preview.projection_days ?? "occurrence datée"}</h5>
       <p>Capacité physique : {preview.before_physical_minutes} → {preview.after_physical_minutes} min.
         Les permissions superposées ne s'additionnent pas.</p>
-      <ul>{preview.consequences.map((item, i) => <li key={i}>{item}</li>)}</ul>
+      {preview.consequences && <ul>{preview.consequences.map((item, i) => <li key={i}>{item}</li>)}</ul>}
       {!!preview.future_revisions_superseded?.length &&
         <p>Révisions futures remplacées : {preview.future_revisions_superseded.join(", ")}.</p>}
       {!preview.calendar_checked && <p>Google non vérifié : temps libre inconnu.</p>}
