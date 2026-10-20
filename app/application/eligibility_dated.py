@@ -53,6 +53,9 @@ def _plan(uow: UnitOfWork, owner: str, draft: DatedPermissionDraft):
     if draft.action is EligibilityAction.MOVE:
         if draft.starts_at is None or draft.ends_at is None:
             raise ValueError("MOVE needs offset-aware start and end instants")
+        if (draft.starts_at.tzinfo is None or draft.starts_at.utcoffset() is None
+                or draft.ends_at.tzinfo is None or draft.ends_at.utcoffset() is None):
+            raise ValueError("MOVE instants must include explicit offsets")
         if draft.starts_at.astimezone(zone).date() < datetime.now(zone).date():
             raise ValueError("MOVE target cannot be in the past")
         if abs((draft.starts_at.astimezone(zone).date() - draft.original_local_date).days) > 92:
