@@ -28,6 +28,9 @@ class ExceptionDecisionInput(BaseModel):
     exception_id: UUID
     expected_version: int = Field(ge=1)
     action: str
+    replacement_action: EligibilityAction | None = None
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
 
 
 class DraftInput(BaseModel):
