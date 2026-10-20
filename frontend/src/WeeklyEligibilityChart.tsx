@@ -124,7 +124,7 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
   const [newType, setNewType] = useState("");
   const [gesture, setGesture] = useState<Gesture | null>(null);
   const canvas = useRef<HTMLDivElement | null>(null);
-  const handledNewWindow = useRef(0);
+  const handledNewWindow = useRef(requestNewWindow);
   const [taskId, setTaskId] = useState("");
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [proposalBusy, setProposalBusy] = useState(false);
