@@ -93,6 +93,7 @@ export function EligibilityContextEditor({ scopeId, workTypeId, zone, seriesId,
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
+  const [unresolved, setUnresolved] = useState<NonNullable<Preview["unresolved_exceptions"]>>([]);
 
   useEffect(() => {
     if (!seriesId || source) return;
@@ -122,19 +123,14 @@ export function EligibilityContextEditor({ scopeId, workTypeId, zone, seriesId,
   }
   const datePayload = () => {
     if (!source) throw new Error("Occurrence source requise.");
-    const localInstant = (date: string, time: string) => {
-      // An existing instant is retained exactly if untouched; a new wall time is
-      // resolved by the backend from an explicit instant, never from browser TZ.
-      const original = time === draft.starts_at_local ? initial?.startsAtInstant : initial?.endsAtInstant;
-      return original || date + "T" + time + ":00Z";
-    };
+
     return {
       draft_id: draft.draft_id, series_id: source.series_id, exception_id: source.exception_id,
       expected_version: source.exception_version ?? 0,
       original_local_date: source.original_local_date, timezone_name: source.timezone_name,
       action: datedAction,
-      starts_at: datedAction === "MOVE" ? (initial?.startsAtInstant || localInstant(selectedDate, draft.starts_at_local)) : null,
-      ends_at: datedAction === "MOVE" ? (initial?.endsAtInstant || localInstant(selectedDate, draft.ends_at_local)) : null,
+      starts_at: datedAction === "MOVE" ? (initial?.startsAtInstant || source.starts_at) : null,
+      ends_at: datedAction === "MOVE" ? (initial?.endsAtInstant || source.ends_at) : null,
       enabled: true,
     };
   };
@@ -145,7 +141,7 @@ export function EligibilityContextEditor({ scopeId, workTypeId, zone, seriesId,
       const payload = mode === "dated" ? datePayload() : draft;
       const result = await request<Preview>(root + endpoint,
         { method: "POST", headers, body: JSON.stringify(payload) });
-      setPreview(result); setAcknowledged(false);
+      setPreview(result); setUnresolved(result.unresolved_exceptions || []); setAcknowledged(false);
     } catch (reason: unknown) {
       setError(reason instanceof Error ? reason.message : "Aperçu impossible.");
     } finally { setBusy(false); }
@@ -244,9 +240,9 @@ export function EligibilityContextEditor({ scopeId, workTypeId, zone, seriesId,
       {!!preview.future_revisions_superseded?.length &&
         <p>Révisions futures remplacées : {preview.future_revisions_superseded.join(", ")}.</p>}
       {!preview.calendar_checked && <p>Google non vérifié : temps libre inconnu.</p>}
-      {!!preview.unresolved_exceptions?.length && <div>
+      {!!unresolved.length && <div>
         <h5>Décisions sur les exceptions futures</h5>
-        {preview.unresolved_exceptions.map((exc) => <label key={exc.exception_id}>
+        {unresolved.map((exc) => <label key={exc.exception_id}>
           Exception {exc.exception_id.slice(0, 8)}
           <select defaultValue="" onChange={(event) => {
             const decisions = draft.exception_decisions.filter((v) => v.exception_id !== exc.exception_id);
