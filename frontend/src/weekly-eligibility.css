@@ -74,3 +74,64 @@
 .eligPreview ul { padding-left: 22px; }
 .eligEditForm input, .eligEditForm select { max-width: 100%; }
 @media (max-width: 640px) { .eligEditForm > label { flex: 1 1 100%; } }
+
+
+/* TP-027B: single day-column/hour-row editor. Coordinates are presentation only. */
+.eligVScroll { overflow-x: auto; overflow-y: visible; border: 1px solid #bacbd9;
+  border-radius: 10px; background: #fff; }
+.eligVScroll:focus-visible { outline: 3px solid #2563eb; outline-offset: 2px; }
+.eligGridCanvas { display: flex; gap: 2px; min-width: 915px; padding: 8px 10px 17px;
+  user-select: none; }
+.eligHourRuler { width: 64px; flex: 0 0 64px; color: #405369; font-size: .78rem; }
+.eligRulerTrack { position: relative; }
+.eligRulerTrack > span { position: absolute; right: 7px; transform: translateY(-50%); white-space: nowrap; }
+.eligDayCol { min-width: 0; flex: 1 1 0; }
+.eligColumnHead { min-height: 55px; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; font-size: .83rem; text-align: center; }
+.eligColumnHead small { display: block; color: #4b5e75; font-size: .73rem; margin-top: 3px; }
+.eligDayTrack { position: relative; border: 1px solid #b5c8d7; background: #f3f8fc;
+  cursor: crosshair; overflow: hidden; touch-action: none; }
+.eligHourLine { pointer-events: none; position: absolute; left: 0; right: 0; height: 1px;
+  background: #c6d8e6; z-index: 0; }
+.eligPhysical { pointer-events: none; position: absolute; left: 0; right: 0;
+  background: #e1f0e7; box-shadow: inset 0 0 0 1px #9ac2a8; opacity: .85; z-index: 0; }
+.eligPermission { position: absolute; z-index: 2; display: flex; flex-direction: column;
+  min-width: 0; background: var(--elig-bg); color: var(--elig-fg);
+  border: 2px solid var(--elig-line); border-radius: 5px; }
+.eligPermission.eligPriority { border-style: dashed; border-width: 3px; }
+.workspaceFrame .eligPermission button.eligVBar { display: block; flex: 1 1 auto;
+  padding: 2px 3px; min-height: 0; width: 100%; min-width: 0; overflow: hidden;
+  white-space: normal; word-break: break-word; text-overflow: ellipsis;
+  border: 0; border-radius: 0; background: transparent; color: inherit;
+  font-size: .74rem; font-weight: 700; text-align: left; cursor: grab; touch-action: none; }
+.workspaceFrame .eligPermission button.eligVBar:active { cursor: grabbing; }
+.workspaceFrame .eligPermission button.eligVHandle { flex: 0 0 8px; height: 8px; width: 100%;
+  min-height: 8px; border: 0; padding: 0; background: var(--elig-line);
+  opacity: .85; cursor: ns-resize; touch-action: none; border-radius: 0; }
+.workspaceFrame .eligPermission button:focus-visible { outline: 3px solid #111827;
+  outline-offset: 2px; z-index: 5; }
+.eligOccupation, .eligPlanned { position: absolute; overflow: hidden; padding: 3px;
+  border-radius: 5px; z-index: 2; font-size: .75rem; font-weight: 700; }
+.eligOccupation.eligGoogle { background: #fbd3d3; color: #7f1b1b; border: 2px solid #b91c1c; }
+.eligOccupation.eligLocal { background: #cbd8ed; color: #17345c; border: 2px solid #3b5a81; }
+.eligPlanned { background: #ffedbc; color: #5a4414; border: 2px dotted #91631b; width: 100%; }
+.eligGhost { position: absolute; z-index: 4; pointer-events: none; left: 0; width: 100%;
+  background: #dbeafe80; border: 3px dashed #1d4ed8; border-radius: 4px; }
+.eligContextPanel { border-top: 2px solid #7798b3; padding-top: 12px; display: grid; gap: 8px; }
+.eligContextPanel > label { display: grid; gap: 6px; font-weight: 600; max-width: 400px; }
+.eligMobileDay { display: none; }
+@media (max-width: 700px) {
+  .eligMobileDay { display: flex; flex-wrap: wrap; justify-content: space-between;
+    align-items: center; gap: 6px; }
+  .eligGridCanvas { min-width: 0; padding: 6px; }
+  .eligHourRuler { width: 62px; flex-basis: 62px; }
+  .eligDayCol { display: none; }
+  .eligDayCol.eligVisibleDay { display: block; flex: 1; min-width: 0; }
+  .eligVScroll { overflow-x: hidden; }
+  .eligContextPanel { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eligGridCanvas *, .eligGridCanvas *::before, .eligGridCanvas *::after {
+    animation: none !important; transition: none !important;
+  }
+}
