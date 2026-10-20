@@ -397,7 +397,7 @@ export function WeeklyEligibilityChart({ week, zone, scopeId, catalog, workTypes
                 onPointerDown={(event) => begin(event, "create", day, null)}>
                 {Array.from({ length: endHour - startHour + 1 }, (_, index) =>
                   <span key={index} className="eligHourLine" aria-hidden="true"
-                    style={{ top: 100 * index / (endHour - startHour) + "%" }} />)}
+                    style={{ top: 100 * (hourMinute(day, startHour + index) - lo) / (hi - lo) + "%" }} />)}
                 {snapshot.fragments.filter((f) => f.weekday === day.weekday).map((fragment, index) => {
                   const position = positioned(day, fragment.start_minute, fragment.end_minute, lo, hi);
                   return position && <span key={index} className="eligPhysical" style={position}
