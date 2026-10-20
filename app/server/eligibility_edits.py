@@ -1,5 +1,5 @@
 """TP-025D owner-scoped contextual edition (not a Google Calendar mutation)."""
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -8,6 +8,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.application.eligibility_edits import (
     EligibilityDraft, EligibilityExceptionDecision, read_series, preview_edit, confirm_edit,
 )
+from app.application.eligibility_dated import (
+    DatedPermissionDraft, preview_dated, confirm_dated,
+)
+from app.domain.eligibility import EligibilityAction
 from app.application.uow import UnitOfWork
 from app.domain.eligibility import EligibilityConflict
 from app.domain.recurring_availability import RuleConflict
@@ -84,6 +88,47 @@ def preview(request: Request, body: DraftInput,
 def confirm(request: Request, body: Confirmation,
             uow: UnitOfWork = Depends(get_uow)):
     return _run(lambda: confirm_edit(
+        uow, _owner(request), body.domain(), command_id=body.command_id,
+        fingerprint=body.fingerprint, confirmed=body.confirmed,
+        acknowledge_bookings=body.acknowledge_bookings,
+    ))
+
+
+class DatedPermissionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    draft_id: UUID
+    series_id: UUID
+    exception_id: UUID | None = None
+    expected_version: int = Field(ge=0)
+    original_local_date: date
+    timezone_name: str = Field(min_length=1, max_length=100)
+    action: EligibilityAction
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    enabled: bool = True
+
+    def domain(self) -> DatedPermissionDraft:
+        return DatedPermissionDraft(**self.model_dump())
+
+
+class DatedPermissionConfirmation(DatedPermissionInput):
+    command_id: UUID
+    fingerprint: str = Field(min_length=64, max_length=64)
+    confirmed: bool
+    acknowledge_bookings: bool = False
+
+
+@router.post("/exceptions/preview")
+def preview_exception(request: Request, body: DatedPermissionInput,
+                      uow: UnitOfWork = Depends(get_uow)):
+    return _run(lambda: preview_dated(uow, _owner(request), body.domain()))
+
+
+@router.post("/exceptions/confirm")
+def confirm_exception(request: Request, body: DatedPermissionConfirmation,
+                      uow: UnitOfWork = Depends(get_uow)):
+    return _run(lambda: confirm_dated(
         uow, _owner(request), body.domain(), command_id=body.command_id,
         fingerprint=body.fingerprint, confirmed=body.confirmed,
         acknowledge_bookings=body.acknowledge_bookings,
