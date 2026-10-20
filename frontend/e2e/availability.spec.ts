@@ -236,6 +236,7 @@ async function prepareEnvelope(page: Page) {
 async function prepareWindow(page: Page, priority = "") {
   await page.getByRole("button", { name: "+ Nouvelle plage" }).last().click();
   const panel = page.getByRole("region", { name: "Panneau contextuel de la grille" });
+  await panel.getByRole("checkbox", { name: "Lundi" }).uncheck();
   await panel.getByRole("checkbox", { name: "Mardi" }).check();
   if (priority) await panel.getByLabel("Rang contextuel (vide = neutre)").fill(priority);
   await panel.getByRole("button", { name: "Prévisualiser les conséquences" }).click();
@@ -368,4 +369,48 @@ test("aucune saisie manuelle exclusive dans Capacité et propositions", async ({
   await page.getByRole("button", { name: "Capacité et propositions" }).click();
   await expect(page.getByRole("button", { name: "Ajouter un bloc disponible" })).toHaveCount(0);
   await expect(page.getByText(/ne crée aucun bloc manuel parallèle/)).toBeVisible();
+});
+
+
+test("TP-027B : sélection de plage dans la grille crée un brouillon sans mutation", async ({ page }) => {
+  const app = await setup(page);
+  await prepareParentAndType(page);
+  await prepareEnvelope(page);
+  const track = page.locator('.eligDayCol[data-day="1"] .eligDayTrack');
+  const box = await track.boundingBox();
+  expect(box).not.toBeNull();
+  if (!box) return;
+  const x = box.x + box.width / 2;
+  const y = box.y + 3 * 54 + 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x, y + 54, { steps: 4 });
+  await page.mouse.up();
+  const panel = page.getByRole("region", { name: "Panneau contextuel de la grille" });
+  await expect(panel).toBeVisible();
+  await expect(panel.getByLabel("Début local")).toHaveValue("09:00");
+  await expect(panel.getByLabel("Fin locale (24:00 permis)")).toHaveValue("10:00");
+  expect(app.requests.some((req) => req.path.endsWith("/eligibility-edits/confirm"))).toBe(false);
+  await panel.getByRole("button", { name: "Annuler le brouillon" }).click();
+  await expect(panel).toHaveCount(0);
+  expect(app.getState().confirmed).toBe(0);
+});
+
+test("TP-027B : source éditable entière au clavier, sans confirmer l'occupation", async ({ page }) => {
+  const app = await setup(page, { existingBooking: true });
+  await prepareParentAndType(page);
+  await prepareEnvelope(page);
+  await prepareWindow(page);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Confirmer explicitement" }).click();
+  await expect.poll(() => app.getState().confirmed).toBe(1);
+  const bar = page.locator(".eligVBar").first();
+  await bar.focus();
+  await page.keyboard.press("Enter");
+  const panel = page.getByRole("region", { name: "Panneau contextuel de la grille" });
+  await expect(panel).toBeVisible();
+  await expect(panel.getByText(/Occurrences futures des jours ciblés/)).toBeVisible();
+  await panel.getByLabel("Fin locale (24:00 permis)").fill("11:30");
+  await expect(panel.getByRole("button", { name: "Confirmer explicitement" })).toHaveCount(0);
+  expect(app.requests.some((req) => req.path.endsWith("/resolution/confirm"))).toBe(false);
 });
