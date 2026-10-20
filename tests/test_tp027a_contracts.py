@@ -286,3 +286,25 @@ def test_targeted_cutover_replaces_exception_atomically(runtime):
         )
         assert successor.enabled and successor.action.value == "MOVE"
         assert successor.series_id == UUID(response.json()["series_id"])
+
+
+def test_targeted_cutover_rollback_preserves_source_and_no_children(runtime, monkeypatch):
+    from app.infrastructure.history_repository import SqlHistoryRepository
+    from app.infrastructure.models import EligibilitySeriesRecord
+    from sqlalchemy import select
+
+    client, factory = runtime
+    scope, typ, source = _setup(client)
+    draft = _target(scope, typ, source)
+    proposal = _preview(client, EDIT, draft)
+
+    def fail_history(self, event):
+        raise RuntimeError("simulated audit persistence failure")
+
+    monkeypatch.setattr(SqlHistoryRepository, "append", fail_history)
+    with pytest.raises(RuntimeError, match="simulated audit"):
+        _confirm(client, EDIT, draft, proposal)
+    with SqlAlchemyUnitOfWork(factory) as uow:
+        assert uow.eligibility.get(UUID(source), "urn:taskplanner:local").version == 1
+        rows = uow.session.scalars(select(EligibilitySeriesRecord)).all()
+        assert len(rows) == 1
