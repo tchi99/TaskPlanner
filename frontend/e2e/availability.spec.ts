@@ -127,6 +127,16 @@ async function setup(page: Page, { stale = false, existingBooking = false } = {}
         potential_minutes: permissions ? [{ work_type_id: leafId,
           minutes: 120, non_additive: true }] : [],
         days, fragments: envelope && permissions ? [fragment] : [],
+        editable_permissions: envelope && permissions ? [{
+          series_id: seriesId, expected_version: 1, revision: 1,
+          effective_from: "2026-10-19", timezone_name: "America/Toronto",
+          days_of_week: [1], starts_at_local: "09:00", ends_at_local: "11:00",
+          start_fold: null, end_fold: null, priority_rank: 1,
+          scope_id: parentId, work_type_id: leafId,
+          original_local_date: offset(week, 1),
+          starts_at: fragment.starts_at, ends_at: fragment.ends_at,
+          source: "SERIES", exception_id: null, exception_version: null,
+        }] : [],
         occupations: [], issues: [], expansion_issues: [],
       });
     }
@@ -224,21 +234,19 @@ async function prepareEnvelope(page: Page) {
 }
 
 async function prepareWindow(page: Page, priority = "") {
-  await page.getByRole("button", { name: "+ Nouvelle plage" }).first().click();
-  const form = page.getByRole("region", { name: "Formulaire nouvelle plage" });
-  await form.getByLabel("Catégorie parente").selectOption(parentId);
-  await form.getByLabel("Sous-catégorie").selectOption(leafId);
-  await form.getByRole("checkbox", { name: "Mardi" }).check();
-  await form.getByLabel("Rang de priorité (facultatif)").fill(priority);
-  await form.getByRole("button", { name: "Prévisualiser" }).click();
-  await expect(page.getByRole("heading", { name: "Aperçu serveur de la nouvelle permission" })).toBeVisible();
-  return form;
+  await page.getByRole("button", { name: "+ Nouvelle plage" }).last().click();
+  const panel = page.getByRole("region", { name: "Panneau contextuel de la grille" });
+  await panel.getByRole("checkbox", { name: "Mardi" }).check();
+  if (priority) await panel.getByLabel("Rang contextuel (vide = neutre)").fill(priority);
+  await panel.getByRole("button", { name: "Prévisualiser les conséquences" }).click();
+  await expect(panel.getByText(/Aperçu serveur/)).toBeVisible();
+  return panel;
 }
 
 test("base vierge : parcours guidé, grille sans barre et aucun parent synthétique", async ({ page }) => {
   const app = await setup(page);
   await expect(page.getByRole("region", { name: "Première configuration" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Aucune plage pour le moment" })).toBeVisible();
+  await expect(page.getByText(/Aucune catégorie n.est créée automatiquement/)).toBeVisible();
   await expect(page.getByText("Compatibilité (héritage)")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "+ Nouvelle plage" }).first()).toBeEnabled();
   expect(app.getState().parents).toEqual([]);
@@ -275,15 +283,13 @@ test("première permission créée depuis grille vide après aperçu confirmé, 
   await prepareEnvelope(page);
   await page.getByRole("button", { name: "+ Nouvelle plage" }).first().focus();
   await page.keyboard.press("Enter");
-  const form = page.getByRole("region", { name: "Formulaire nouvelle plage" });
-  await form.getByLabel("Catégorie parente").selectOption(parentId);
-  await form.getByLabel("Sous-catégorie").selectOption(leafId);
-  await form.getByRole("checkbox", { name: "Mardi" }).check();
-  await form.getByRole("button", { name: "Prévisualiser" }).click();
+  const panel = page.getByRole("region", { name: "Panneau contextuel de la grille" });
+  await panel.getByRole("checkbox", { name: "Mardi" }).check();
+  await panel.getByRole("button", { name: "Prévisualiser les conséquences" }).click();
   expect(app.getState().confirmed).toBe(0);
   await expect(page.getByText(/Les deux permissions peuvent partager/)).toBeVisible();
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Confirmer la nouvelle plage" }).click();
+  await page.getByRole("button", { name: "Confirmer explicitement" }).click();
   await expect.poll(() => app.getState().confirmed).toBe(1);
   const confirmed = app.requests.find((request) =>
     request.path === "/api/availability/eligibility-edits/confirm");
@@ -299,14 +305,14 @@ test("priorité facultative et capacités non additives sur permissions superpos
   await prepareEnvelope(page);
   await prepareWindow(page, "1");
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Confirmer la nouvelle plage" }).click();
+  await page.getByRole("button", { name: "Confirmer explicitement" }).click();
   await expect.poll(() => app.getState().confirmed).toBe(1);
   expect(app.requests.find((v) => v.path.endsWith("/eligibility-edits/preview"))?.body.priority_rank)
     .toBe(1);
-  await expect(page.getByText(/minutes physiques déclarées/)).toBeVisible();
+  await expect(page.getByText(/minutes physiques/).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Occupation réelle", exact: true })).toBeEnabled();
   await expect(page.getByRole("button", { name: "Plan proposé", exact: true })).toBeEnabled();
-  await expect(page.getByText(/Les potentiels par activité ne s'additionnent jamais/)).toBeVisible();
+  await expect(page.getByText(/les permissions superposées/i).first()).toBeVisible();
 });
 
 test("édition contextuelle d'une permission existante sans conversion historique", async ({ page }) => {
@@ -315,11 +321,10 @@ test("édition contextuelle d'une permission existante sans conversion historiqu
   await prepareEnvelope(page);
   await prepareWindow(page, "1");
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Confirmer la nouvelle plage" }).click();
+  await page.getByRole("button", { name: "Confirmer explicitement" }).click();
   await expect.poll(() => app.getState().confirmed).toBe(1);
-  await page.locator(".eligBar").first().click();
-  await page.getByRole("button", { name: /Modifier la permission/ }).click();
-  await expect(page.getByRole("region", { name: "Édition contextuelle d'admissibilité" })).toBeVisible();
+  await page.locator(".eligVBar").first().click();
+  await expect(page.getByRole("region", { name: "Panneau contextuel de la grille" })).toBeVisible();
   await expect(page.getByText(/Convertir la règle historique/)).toHaveCount(0);
 });
 
@@ -328,11 +333,11 @@ test("modification d'un champ invalide l'ancien aperçu et empêche une confirma
   await prepareParentAndType(page);
   await prepareEnvelope(page);
   const form = await prepareWindow(page, "1");
-  await form.getByLabel("Heure de fin").fill("11:30");
-  await expect(page.getByRole("button", { name: "Confirmer la nouvelle plage" })).toHaveCount(0);
+  await form.getByLabel("Fin locale (24:00 permis)").fill("11:30");
+  await expect(page.getByRole("button", { name: "Confirmer explicitement" })).toHaveCount(0);
   expect(app.getState().confirmed).toBe(0);
-  await form.getByRole("button", { name: "Prévisualiser" }).click();
-  await expect(page.getByRole("button", { name: "Confirmer la nouvelle plage" })).toBeVisible();
+  await form.getByRole("button", { name: "Prévisualiser les conséquences" }).click();
+  await expect(page.getByRole("button", { name: "Confirmer explicitement" })).toBeVisible();
 });
 
 test("409 sur confirmation conserve le brouillon et exige un nouvel aperçu", async ({ page }) => {
@@ -341,10 +346,10 @@ test("409 sur confirmation conserve le brouillon et exige un nouvel aperçu", as
   await prepareEnvelope(page);
   const form = await prepareWindow(page, "1");
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Confirmer la nouvelle plage" }).click();
+  await page.getByRole("button", { name: "Confirmer explicitement" }).click();
   await expect(page.getByText(/Le brouillon est conservé/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Confirmer la nouvelle plage" })).toHaveCount(0);
-  await expect(form.getByLabel("Heure de début")).toHaveValue("09:00");
+  await expect(page.getByRole("button", { name: "Confirmer explicitement" })).toHaveCount(0);
+  await expect(form.getByLabel("Début local")).toHaveValue("09:00");
   expect(app.getState().confirmed).toBe(0);
 });
 
@@ -354,7 +359,7 @@ test("interface mobile : configuration au clavier et aucune écriture Google", a
   await prepareParentAndType(page);
   await prepareEnvelope(page);
   await page.getByRole("button", { name: "+ Nouvelle plage" }).first().click();
-  await expect(page.getByRole("region", { name: "Formulaire nouvelle plage" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Panneau contextuel de la grille" })).toBeVisible();
   expect(app.requests.some((v) => v.path.includes("/calendar") && v.method !== "GET")).toBe(false);
 });
 
