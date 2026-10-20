@@ -4,8 +4,7 @@ import "./availability.css";
 import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
 import { WeeklyEligibilityChart } from "./WeeklyEligibilityChart";
 import { ScheduleCategories, type ScopeCatalog } from "./ScheduleCategories";
-import { AvailabilitySetupGuide, AvailabilityEmptyState, NewAvailabilityWindowForm } from "./availability-setup/FirstAvailabilitySetup";
-import type { WindowPreviewRequest } from "./availability-setup/model";
+import { AvailabilitySetupGuide } from "./availability-setup/FirstAvailabilitySetup";
 
 type WorkType = { id: string; name: string; scope_id: string };
 type TaskChoice = { id: string; title: string; status: string; work_type_id: string | null };
@@ -155,25 +154,13 @@ export function AvailabilityPlanner({ workTypes, tasks, onWorkTypesChanged }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [newWindowOpen, setNewWindowOpen] = useState(false);
-  const [newWindowBusy, setNewWindowBusy] = useState(false);
-  const [newWindowError, setNewWindowError] = useState("");
-  const [windowAcknowledged, setWindowAcknowledged] = useState(false);
-  const [windowPreview, setWindowPreview] = useState<{
-    draft: Record<string, unknown> & { draft_id: string };
-    snapshot: {
-      fingerprint: string; blocking_issues: string[]; consequences: string[];
-      before_physical_minutes: number; after_physical_minutes: number;
-      booking_inventory: { id: string }[]; calendar_checked: boolean;
-    };
-  } | null>(null);
+  const [newWindowRequest, setNewWindowRequest] = useState(0);
   const [hasPermission, setHasPermission] = useState(false);
   const [chartRevision, setChartRevision] = useState(0);
   const envelopeParentIds = Array.from(new Set(rules.flatMap((rule) =>
     rule.revisions.filter((revision) => revision.kind === "GENERAL" &&
       revision.enabled && revision.scope_id).map((revision) => revision.scope_id!))));
   const eligibleParents = catalog?.scopes.filter((scope) => scope.state === "ACTIVE") || [];
-  const minimumEffectiveDate = shiftDay(dayInZone(new Date().toISOString(), zone), 1);
   const progress = {
     hasParent: eligibleParents.length > 0,
     hasWorkType: workTypes.some((type) => eligibleParents.some((scope) => scope.id === type.scope_id)),
@@ -183,54 +170,6 @@ export function AvailabilityPlanner({ workTypes, tasks, onWorkTypesChanged }: {
   function focusSetup(id: string) {
     document.getElementById(id)?.focus();
   }
-  async function previewNewWindow(request: WindowPreviewRequest) {
-    setNewWindowError(""); setWindowPreview(null); setWindowAcknowledged(false);
-    const draft = {
-      draft_id: crypto.randomUUID(), series_id: null, scope_id: request.parentId,
-      work_type_id: request.workTypeId, expected_version: 0,
-      effective_from: request.effectiveDate, timezone_name: request.timezone,
-      days_of_week: request.daysOfWeek, starts_at_local: request.startTime,
-      ends_at_local: request.endTime, priority_rank: request.priority,
-      enabled: true, start_fold: null, end_fold: null,
-    };
-    try {
-      const snapshot = await api<{
-        fingerprint: string; blocking_issues: string[]; consequences: string[];
-        before_physical_minutes: number; after_physical_minutes: number;
-        booking_inventory: { id: string }[]; calendar_checked: boolean;
-      }>("/api/availability/eligibility-edits/preview", {
-        method: "POST", headers, body: JSON.stringify(draft),
-      });
-      setWindowPreview({ draft, snapshot });
-    } catch (reason: unknown) {
-      setNewWindowError(reason instanceof Error ? reason.message : "Aperçu impossible.");
-      throw reason;
-    }
-  }
-  async function confirmNewWindow() {
-    if (!windowPreview || windowPreview.snapshot.blocking_issues.length ||
-      (windowPreview.snapshot.booking_inventory.length && !windowAcknowledged)) return;
-    if (!window.confirm("Confirmer cette permission future ? Les réservations restent inchangées.")) return;
-    setNewWindowBusy(true); setNewWindowError("");
-    try {
-      await api("/api/availability/eligibility-edits/confirm", {
-        method: "POST", headers, body: JSON.stringify({
-          ...windowPreview.draft, command_id: windowPreview.draft.draft_id,
-          fingerprint: windowPreview.snapshot.fingerprint,
-          confirmed: true, acknowledge_bookings: windowAcknowledged,
-        }),
-      });
-      setNewWindowOpen(false); setWindowPreview(null); setHasPermission(true);
-      setChartRevision((value) => value + 1);
-      await reload();
-      setNotice("Permission enregistrée. Aucune réservation ni événement Google déplacé.");
-    } catch (reason: unknown) {
-      const message = reason instanceof Error ? reason.message : "Confirmation impossible.";
-      setNewWindowError(message + " Le brouillon est conservé.");
-      if (message.includes("(409)")) setWindowPreview(null);
-    } finally { setNewWindowBusy(false); }
-  }
-
   const label = (id: string | null) =>
     id ? workTypes.find((type) => type.id === id)?.name || "Type " + shortId(id) : "Non classé (NULL)";
   const scopeLabel = (id: string | null | undefined) =>
@@ -255,7 +194,7 @@ export function AvailabilityPlanner({ workTypes, tasks, onWorkTypesChanged }: {
     if (weeklyGridDirty && !window.confirm(
       "Changer de parent abandonnera le brouillon hebdomadaire non enregistré. Continuer ?")) return;
     setSelectedScopeId(id); setWeeklyGridDirty(false);
-    setWindowPreview(null); setHasPermission(false);
+    setHasPermission(false);
   }
   useEffect(() => {
     if (!selectedScopeId) { setHasPermission(false); return; }
@@ -524,7 +463,7 @@ export function AvailabilityPlanner({ workTypes, tasks, onWorkTypesChanged }: {
               onCreateParent={() => focusSetup("tp26-new-parent")}
               onAddWorkType={() => focusSetup("tp26-new-work-type")}
               onDefineEnvelope={() => focusSetup("tp26-envelope-date")}
-              onNewWindow={() => { setNewWindowOpen(true); setWindowPreview(null); }} />}
+              onNewWindow={() => setNewWindowRequest((value) => value + 1)} />}
           {catalog && <ScheduleCategories catalog={catalog} workTypes={workTypes}
             onWorkTypesChanged={onWorkTypesChanged}
             onChanged={async () => { await refreshCatalog(); await reload(); }}
@@ -541,61 +480,19 @@ export function AvailabilityPlanner({ workTypes, tasks, onWorkTypesChanged }: {
             <p className="muted">Une enveloppe physique par parent, sans double comptage.
               Les sous-catégories partagent ses minutes admissibles.</p>
           </section>
+          {selectedScopeId && <WeeklyEligibilityChart
+            week={week} zone={zone} scopeId={selectedScopeId}
+            catalog={catalog} workTypes={workTypes} tasks={tasks}
+            requestNewWindow={newWindowRequest} onSelectScope={selectScope}
+            onSaved={() => { void reload(); setChartRevision((value) => value + 1); }} />}
           {selectedScopeId && <details open={!envelopeParentIds.includes(selectedScopeId)}>
-            <summary>Définir ou modifier l'enveloppe physique hebdomadaire</summary>
+            <summary>Paramètres avancés · définir ou modifier l'enveloppe physique</summary>
             <WeeklyScheduleEditor key={selectedScopeId} workTypes={workTypes}
               catalog={catalog} scopeId={selectedScopeId} zone={zone}
               onSaved={async () => { await reload(); setChartRevision((value) => value + 1); }}
               onDirtyChange={setWeeklyGridDirty} />
           </details>}
-          <section className="availabilityCard" aria-label="Créer une permission">
-            <div className="availabilityCardHeading">
-              <div><h3>Permissions récurrentes</h3>
-                <p className="muted">Plusieurs activités du même parent peuvent se superposer.
-                  L'aperçu serveur valide les contraintes avant l'enregistrement.</p></div>
-              <button type="button" onClick={() => { setNewWindowOpen(true); setWindowPreview(null); }}>
-                + Nouvelle plage
-              </button>
-            </div>
-            {!hasPermission && <AvailabilityEmptyState />}
-            {newWindowOpen && <NewAvailabilityWindowForm parents={eligibleParents.map((scope) =>
-              ({ id: scope.id, label: scope.name }))}
-              workTypes={workTypes.map((type) => ({
-                id: type.id, parentId: type.scope_id, label: type.name,
-              }))}
-              envelopeParentIds={envelopeParentIds} initialTimezone={zone}
-              minimumEffectiveDate={minimumEffectiveDate}
-              onPreview={previewNewWindow} onDraftChanged={() => setWindowPreview(null)}
-              onCancel={() => { setNewWindowOpen(false); setWindowPreview(null); }} />}
-            {newWindowError && <p role="alert" className="error">{newWindowError}</p>}
-            {windowPreview && <div className="availabilityPreview" aria-live="polite">
-              <h4>Aperçu serveur de la nouvelle permission</h4>
-              <p>Capacité physique avant : {windowPreview.snapshot.before_physical_minutes} min ;
-                après : {windowPreview.snapshot.after_physical_minutes} min. Les permissions
-                simultanées ne s'additionnent pas.</p>
-              <ul>{windowPreview.snapshot.consequences.map((value, index) =>
-                <li key={index}>{value}</li>)}</ul>
-              {!windowPreview.snapshot.calendar_checked &&
-                <p>Google non vérifié : aucun temps libre n'est présumé.</p>}
-              {windowPreview.snapshot.blocking_issues.length > 0 &&
-                <p role="alert" className="error">Blocages :
-                  {windowPreview.snapshot.blocking_issues.join(", ")}</p>}
-              {windowPreview.snapshot.booking_inventory.length > 0 &&
-                <label><input type="checkbox" checked={windowAcknowledged}
-                  onChange={(event) => setWindowAcknowledged(event.target.checked)} />
-                  Je reconnais que {windowPreview.snapshot.booking_inventory.length} réservation(s)
-                  confirmée(s) restent inchangées.</label>}
-              <button type="button" disabled={newWindowBusy ||
-                windowPreview.snapshot.blocking_issues.length > 0 ||
-                (windowPreview.snapshot.booking_inventory.length > 0 && !windowAcknowledged)}
-                onClick={() => void confirmNewWindow()}>
-                {newWindowBusy ? "Enregistrement…" : "Confirmer la nouvelle plage"}</button>
-            </div>}
-          </section>
-          {selectedScopeId && <WeeklyEligibilityChart key={selectedScopeId + ":" + chartRevision}
-            week={week} zone={zone} scopeId={selectedScopeId}
-            catalog={catalog} workTypes={workTypes} tasks={tasks}
-            onSelectScope={selectScope} />}
+
         </div>
       ) : (
         <div className="availabilityStack">
