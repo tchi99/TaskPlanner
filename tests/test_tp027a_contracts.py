@@ -255,3 +255,34 @@ def test_confirmed_booking_outside_parent_envelope_remains_visible(runtime):
     assert result.status_code == 200, result.text
     assert any(item["booking_id"] == str(booking.id)
                and item["outside_envelope"] for item in result.json()["occupations"])
+
+
+def test_targeted_cutover_replaces_exception_atomically(runtime):
+    client, factory = runtime
+    scope, typ, source = _setup(client)
+    original_exception = _dated(source, "2027-01-12", "REMOVE")
+    created = _confirm(client, EDIT + "/exceptions", original_exception,
+                       _preview(client, EDIT + "/exceptions", original_exception))
+    assert created.status_code == 200, created.text
+    original_id = created.json()["exception_id"]
+    draft = _target(scope, typ, source, exception_decisions=[{
+        "exception_id": original_id, "expected_version": 1,
+        "action": "REPLACE", "replacement_action": "MOVE",
+        "starts_at": "2027-01-12T10:45:00-05:00",
+        "ends_at": "2027-01-12T11:45:00-05:00",
+    }])
+    proposed = _preview(client, EDIT, draft)
+    assert proposed["unresolved_exceptions"] == []
+    assert proposed["exception_decisions"][0]["action"] == "REPLACE"
+    response = _confirm(client, EDIT, draft, proposed)
+    assert response.status_code == 200, response.text
+    with SqlAlchemyUnitOfWork(factory) as uow:
+        previous = uow.eligibility.get_exception(UUID(original_id),
+                                                 "urn:taskplanner:local")
+        assert previous.version == 2 and not previous.enabled
+        successor = uow.eligibility.get_exception(
+            UUID(proposed["exception_decisions"][0]["successor_id"]),
+            "urn:taskplanner:local",
+        )
+        assert successor.enabled and successor.action.value == "MOVE"
+        assert successor.series_id == UUID(response.json()["series_id"])
