@@ -17,7 +17,7 @@ from app.application.history import HistoryEvent, HistorySource
 from app.application.uow import UnitOfWork
 from app.domain.effective_availability import project_effective
 from app.domain.eligibility import (
-    EligibilityConflict, EligibilityRevision, EligibilitySeries,
+    EligibilityAction, EligibilityConflict, EligibilityRevision, EligibilitySeries,
 )
 from app.domain.eligibility_projection import project_eligibility, reconcile_booking_issues
 from app.domain.recurring_availability import RuleConflict
@@ -41,7 +41,10 @@ _BLOCKING = {
 class EligibilityExceptionDecision:
     exception_id: UUID
     expected_version: int
-    action: str  # KEEP or DISABLE; impacted occurrences require a choice
+    action: str  # KEEP, REPLACE, DISABLE
+    replacement_action: EligibilityAction | None = None
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
 
 
 @dataclass(frozen=True)
